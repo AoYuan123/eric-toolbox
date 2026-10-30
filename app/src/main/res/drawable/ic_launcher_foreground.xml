@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 百宝箱图标：一个金色的箱子 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#E8BE5A"
+        android:strokeWidth="4"
+        android:strokeLineJoin="round"
+        android:pathData="M34,46 L74,46 L74,74 L34,74 Z" />
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#E8BE5A"
+        android:strokeWidth="4"
+        android:strokeLineJoin="round"
+        android:pathData="M30,38 L78,38 L78,46 L30,46 Z" />
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#E8BE5A"
+        android:strokeWidth="4"
+        android:strokeLineCap="round"
+        android:pathData="M46,38 L46,32 L62,32 L62,38 M54,52 L54,60" />
+</vector>
