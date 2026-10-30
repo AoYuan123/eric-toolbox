@@ -168,10 +168,10 @@ private fun GoldMain(onBack: () -> Unit, onSettings: () -> Unit, onHold: (GoldPa
         }
 
         if (product != "market") {
+            val target = if (product == "jcj") GoldPage.HOLD_JCJ else GoldPage.HOLD_RY
+            val holdMod = Modifier.fillMaxWidth().background(C.Surface, RoundedCornerShape(14.dp)).clickable { onHold(target) }.padding(horizontal = 14.dp, vertical = 12.dp)
             Row(
-                Modifier.fillMaxWidth().background(C.Surface, RoundedCornerShape(14.dp))
-                    .clickable { onHold(if (product == "jcj") GoldPage.HOLD_JCJ else GoldPage.HOLD_RY })
-                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                holdMod,
                 verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 Box(Modifier.size(36.dp).background(C.GoldBg, RoundedCornerShape(12.dp)), contentAlignment = Alignment.Center) {
