@@ -11,12 +11,15 @@ import android.os.Build
 import android.os.PowerManager
 import android.provider.Settings
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -24,16 +27,16 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Switch
-import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -42,8 +45,10 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
@@ -54,11 +59,13 @@ import com.eric.toolbox.core.AlertLog
 import com.eric.toolbox.core.ModuleRegistry
 import com.eric.toolbox.core.MonitorService
 import com.eric.toolbox.core.Notifier
+import com.eric.toolbox.core.RunWindow
 import com.eric.toolbox.core.Store
 import com.eric.toolbox.core.UpdateInfo
 import com.eric.toolbox.core.Updater
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
+import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 
@@ -75,18 +82,228 @@ fun rememberResumeTick(): Int {
     return tick
 }
 
-// ---------------- 后台保活引导 ----------------
+// ======================= 我的 =======================
+
+@Composable
+fun MineScreen(go: (Route) -> Unit) {
+    val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val tick = rememberResumeTick()
+    var themeKey by remember { mutableStateOf(ThemeManager.key(ctx)) }
+    var redUp by remember { mutableStateOf(C.redUp) }
+    var showWindow by remember { mutableStateOf(false) }
+    var showLang by remember { mutableStateOf(false) }
+    var updateMsg by remember { mutableStateOf("") }
+    var update by remember { mutableStateOf<UpdateInfo?>(null) }
+    var testMsg by remember { mutableStateOf("") }
+    val keepAliveDone = remember(tick) { keepAliveStatus(ctx).count { it } }
+    val windowText = remember(tick, showWindow) { RunWindow.describe(ctx) }
+
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Text("我的", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = C.Text)
+        Row(
+            Modifier.fillMaxWidth().background(C.Surface, RoundedCornerShape(18.dp)).padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            Box(Modifier.size(52.dp).background(C.GoldBg, CircleShape), contentAlignment = Alignment.Center) {
+                Text("E", color = C.Gold, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+            }
+            Column {
+                Text("Eric", color = C.Text, fontSize = 17.sp, fontWeight = FontWeight.Medium)
+                Text("v${BuildConfig.VERSION_NAME} · ${ModuleRegistry.all.size} 个模块", color = C.Muted, fontSize = 12.sp)
+            }
+        }
+
+        SectionLabel("主题")
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            val options = Palettes.all.map { it.key to it.name } + ("system" to "跟随系统")
+            options.forEach { (k, name) ->
+                val p = Palettes.all.firstOrNull { it.key == k }
+                val sel = themeKey == k
+                Column(
+                    Modifier.weight(1f).background(C.Surface, RoundedCornerShape(16.dp))
+                        .border(2.dp, if (sel) C.Gold else Color.Transparent, RoundedCornerShape(16.dp))
+                        .clickable { themeKey = k; ThemeManager.set(ctx, k) }
+                        .padding(vertical = 10.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Box(
+                        Modifier.size(44.dp, 30.dp).background(p?.bg ?: Color(0xFF5A606B), RoundedCornerShape(8.dp)).padding(4.dp),
+                        contentAlignment = Alignment.BottomStart,
+                    ) { Box(Modifier.size(18.dp, 6.dp).background(p?.gold ?: Color(0xFFE8BE5A), RoundedCornerShape(3.dp))) }
+                    Text(name, color = C.Text, fontSize = 12.sp)
+                }
+            }
+        }
+
+        SectionLabel("提醒与后台")
+        ListCard {
+            RowItem("通知与提醒", "系统通知设置", onClick = { openAppNotificationSettings(ctx) })
+            RowItem("发送一条测试提醒", testMsg, onClick = {
+                Notifier.test(ctx); testMsg = if (Notifier.canPost(ctx)) "已发送" else "通知未开启"
+            })
+            RowItem("后台保活设置", "$keepAliveDone / 5 项已完成", onClick = { go(Route.KeepAlive) })
+            RowItem("运行时段", windowText, sub = "时段外不运行、不提醒，到点自动唤醒", onClick = { showWindow = true })
+        }
+
+        SectionLabel("通用")
+        ListCard {
+            RowItem("语言", "简体中文", onClick = { showLang = true })
+            RowItem("整理首页模块", "排序 / 隐藏", onClick = { go(Route.Arrange) })
+            RowItem("涨跌颜色", if (redUp) "红涨绿跌" else "绿涨红跌", onClick = {
+                redUp = !redUp; ThemeManager.setRedUp(ctx, redUp)
+            })
+            RowItem("数据备份与恢复", "", onClick = { go(Route.Backup) })
+        }
+
+        SectionLabel("关于")
+        ListCard {
+            RowItem("检查更新", updateMsg.ifBlank { "当前 v${BuildConfig.VERSION_NAME}" }, onClick = {
+                updateMsg = "正在检查…"
+                scope.launch {
+                    updateMsg = try {
+                        update = Updater.check()
+                        if (update == null) "已是最新版本" else "发现新版本 v${update!!.versionName}"
+                    } catch (e: Exception) {
+                        "检查失败：${e.message ?: "网络错误"}"
+                    }
+                }
+            })
+            update?.let { u ->
+                if (u.notes.isNotBlank()) Text(u.notes, color = C.Muted, fontSize = 12.sp, modifier = Modifier.padding(vertical = 6.dp))
+                Button(
+                    onClick = { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(u.apkUrl ?: u.pageUrl))) },
+                    colors = ButtonDefaults.buttonColors(containerColor = C.Gold, contentColor = C.Bg),
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+                ) { Text("下载并安装 v${u.versionName}") }
+            }
+            RowItem("数据来源", "东方财富 · 新浪 · 工商银行")
+        }
+        Text("行情数据来自各网站公开页面，仅供个人参考。", color = C.Muted, fontSize = 11.sp, modifier = Modifier.padding(start = 4.dp))
+    }
+
+    if (showWindow) WindowDialog(ctx) { showWindow = false; MonitorService.sync(ctx) }
+    if (showLang) {
+        AlertDialog(
+            onDismissRequest = { showLang = false },
+            confirmButton = { TextButton(onClick = { showLang = false }) { Text("知道了") } },
+            title = { Text("语言") },
+            text = { Text("目前只提供简体中文。需要其他语言时告诉我，再加。") },
+        )
+    }
+}
+
+@Composable
+private fun WindowDialog(ctx: Context, onDone: () -> Unit) {
+    var start by remember { mutableStateOf((RunWindow.startMin(ctx) / 60).toString()) }
+    var end by remember { mutableStateOf((RunWindow.endMin(ctx) / 60).toString()) }
+    var weekendOff by remember { mutableStateOf(RunWindow.weekendOff(ctx)) }
+    var err by remember { mutableStateOf("") }
+    AlertDialog(
+        onDismissRequest = onDone,
+        title = { Text("运行时段") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    OutlinedTextField(start, { start = it.filter(Char::isDigit) }, label = { Text("开始（时）") }, modifier = Modifier.weight(1f), singleLine = true)
+                    OutlinedTextField(end, { end = it.filter(Char::isDigit) }, label = { Text("结束（时）") }, modifier = Modifier.weight(1f), singleLine = true)
+                }
+                ToggleRow("周末不运行", null, weekendOff) { weekendOff = it }
+                if (err.isNotBlank()) Text(err, color = C.Warn, fontSize = 12.sp)
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                val s = start.toIntOrNull(); val e = end.toIntOrNull()
+                if (s == null || e == null || s !in 0..23 || e !in 1..24 || s >= e) {
+                    err = "开始需在 0–23，结束需在 1–24，且开始早于结束"
+                } else {
+                    RunWindow.set(ctx, s * 60, e * 60, weekendOff); onDone()
+                }
+            }) { Text("保存") }
+        },
+        dismissButton = { TextButton(onClick = onDone) { Text("取消") } },
+    )
+}
+
+// ======================= 记录 =======================
+
+@Composable
+fun RecordsScreen() {
+    val ctx = LocalContext.current
+    remember { AlertLog.load(ctx) }
+    val all by AlertLog.flow.collectAsState()
+    var filter by remember { mutableStateOf("all") }
+    val fmtDay = remember { SimpleDateFormat("M月d日", Locale.CHINA) }
+    val fmtTime = remember { SimpleDateFormat("HH:mm", Locale.CHINA) }
+    val list = all.filter { filter == "all" || it.moduleId == filter }
+    val chips = listOf("all" to "全部") + ModuleRegistry.all.map { it.id to it.name } + (AlertLog.SYSTEM to "系统")
+
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text("记录", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = C.Text)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            chips.forEach { (k, name) ->
+                val on = filter == k
+                Box(
+                    Modifier.background(if (on) C.Gold else C.Surface, RoundedCornerShape(50)).clickable { filter = k }
+                        .padding(horizontal = 14.dp, vertical = 7.dp),
+                ) { Text(name, color = if (on) (if (C.palette.isLight) Color.White else C.Bg) else C.Muted, fontSize = 13.sp) }
+            }
+        }
+        if (list.isEmpty()) Text("还没有记录", color = C.Muted, fontSize = 14.sp, modifier = Modifier.padding(top = 20.dp))
+        var lastDay = ""
+        list.forEach { e ->
+            val day = dayLabel(e.timeMs, fmtDay)
+            if (day != lastDay) {
+                SectionLabel(day); lastDay = day
+            }
+            CardBox {
+                Row {
+                    Text(e.title, color = C.Text, fontSize = 15.sp, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
+                    Text(fmtTime.format(Date(e.timeMs)), color = C.Muted, fontSize = 12.sp)
+                }
+                Text(e.body, color = C.Text.copy(alpha = 0.85f), fontSize = 13.sp)
+                Text(if (e.moduleId == AlertLog.SYSTEM) "系统" else ModuleRegistry.byId(e.moduleId)?.name ?: e.moduleId, color = C.Muted, fontSize = 11.sp)
+            }
+        }
+        Box(Modifier.height(8.dp))
+    }
+}
+
+private fun dayLabel(ms: Long, fmt: SimpleDateFormat): String {
+    val c = Calendar.getInstance(RunWindow.TZ)
+    val today = c.get(Calendar.DAY_OF_YEAR) to c.get(Calendar.YEAR)
+    c.timeInMillis = ms
+    val d = c.get(Calendar.DAY_OF_YEAR) to c.get(Calendar.YEAR)
+    return when {
+        d == today -> "今天"
+        d.second == today.second && d.first == today.first - 1 -> "昨天"
+        else -> fmt.format(Date(ms))
+    }
+}
+
+// ======================= 后台保活引导 =======================
+
+@SuppressLint("BatteryLife")
+private fun keepAliveStatus(ctx: Context): List<Boolean> {
+    val prefs = Store.global(ctx)
+    return listOf(
+        Notifier.canPost(ctx),
+        ctx.getSystemService(PowerManager::class.java).isIgnoringBatteryOptimizations(ctx.packageName),
+        RunWindow.canExact(ctx),
+        prefs.getBoolean("ka_autostart", false),
+        prefs.getBoolean("ka_lock", false),
+    )
+}
 
 @SuppressLint("BatteryLife")
 @Composable
 fun KeepAliveScreen(onBack: () -> Unit) {
     val ctx = LocalContext.current
     val tick = rememberResumeTick()
-    val notifOk = remember(tick) { Notifier.canPost(ctx) }
-    val batteryOk = remember(tick) { ctx.getSystemService(PowerManager::class.java).isIgnoringBatteryOptimizations(ctx.packageName) }
+    var version by remember { mutableIntStateOf(0) }
+    val st = remember(tick, version) { keepAliveStatus(ctx) }
     val prefs = Store.global(ctx)
-    var autoStartDone by remember { mutableStateOf(prefs.getBoolean("ka_autostart", false)) }
-    var lockDone by remember { mutableStateOf(prefs.getBoolean("ka_lock", false)) }
 
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
         TopBar("后台保活设置", onBack)
@@ -94,25 +311,33 @@ fun KeepAliveScreen(onBack: () -> Unit) {
             Text("国产手机会自动清理后台应用。完成下面几步，锁屏后也能按时提醒。", color = C.Muted, fontSize = 14.sp)
             Text("检测到机型：${Build.MANUFACTURER} ${Build.MODEL} · Android ${Build.VERSION.RELEASE}", color = C.Muted, fontSize = 13.sp)
 
-            Step(1, "允许通知", "否则收不到提醒", notifOk) { openAppNotificationSettings(ctx) }
-            Step(2, "关闭电池优化", "设为“无限制”，也让后台能被自动拉起", batteryOk) {
+            Step(1, "允许通知", "否则收不到提醒", st[0]) { openAppNotificationSettings(ctx) }
+            Step(2, "关闭电池优化", "设为“无限制”，后台才能被自动拉起", st[1]) {
                 try {
                     ctx.startActivity(Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:${ctx.packageName}")))
                 } catch (_: Exception) {
                     ctx.startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
                 }
             }
-            Step(3, "允许自启动", "开机和被清理后自动拉起（各品牌入口不同）", autoStartDone) {
+            Step(3, "允许闹钟和提醒", "每天到点准时唤醒监控", st[2]) {
+                if (Build.VERSION.SDK_INT >= 31) {
+                    try {
+                        ctx.startActivity(Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM, Uri.parse("package:${ctx.packageName}")))
+                    } catch (_: Exception) { openAppDetails(ctx) }
+                }
+            }
+            Step(4, "允许自启动", "开机和被清理后自动拉起（各品牌入口不同）", st[3]) {
                 openAutoStart(ctx)
-                autoStartDone = true; prefs.edit().putBoolean("ka_autostart", true).apply()
+                prefs.edit().putBoolean("ka_autostart", true).apply(); version++
             }
-            Step(4, "在最近任务里锁定 App", "打开多任务界面，下拉或长按本 App 卡片，选“锁定”", lockDone, buttonText = "我已锁定") {
-                lockDone = true; prefs.edit().putBoolean("ka_lock", true).apply()
+            Step(5, "在最近任务里锁定 App", "打开多任务界面，下拉或长按本 App 卡片，选“锁定”", st[4], buttonText = "我已锁定") {
+                prefs.edit().putBoolean("ka_lock", true).apply(); version++
             }
-            Text("第 3、4 步系统无法自动检测，按下按钮后会记为已完成。", color = C.Muted, fontSize = 12.sp)
+            Text("第 4、5 步系统无法自动检测，按下按钮后会记为已完成。", color = C.Muted, fontSize = 12.sp)
             OutlinedButton(onClick = { MonitorService.sync(ctx) }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
                 Text("重新启动后台服务", color = C.Text)
             }
+            Box(Modifier.height(12.dp))
         }
     }
 }
@@ -136,7 +361,7 @@ private fun Step(n: Int, title: String, sub: String, done: Boolean, buttonText: 
     }
 }
 
-private fun openAppNotificationSettings(ctx: Context) {
+fun openAppNotificationSettings(ctx: Context) {
     val i = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, ctx.packageName)
     try { ctx.startActivity(i) } catch (_: Exception) { openAppDetails(ctx) }
 }
@@ -168,32 +393,7 @@ private fun openAutoStart(ctx: Context) {
     openAppDetails(ctx)
 }
 
-// ---------------- 全部提醒记录 ----------------
-
-@Composable
-fun AlertsScreen(onBack: () -> Unit) {
-    val ctx = LocalContext.current
-    val list = remember { AlertLog.load(ctx) }
-    val fmt = remember { SimpleDateFormat("MM/dd HH:mm", Locale.CHINA) }
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
-        TopBar("全部提醒记录", onBack)
-        Column(Modifier.padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            if (list.isEmpty()) Text("还没有提醒记录", color = C.Muted)
-            list.forEach { e ->
-                CardBox {
-                    Row {
-                        Text(e.title, color = C.Text, fontSize = 15.sp, modifier = Modifier.weight(1f))
-                        Text(fmt.format(Date(e.timeMs)), color = C.Muted, fontSize = 12.sp)
-                    }
-                    Text(e.body, color = C.Muted, fontSize = 13.sp)
-                    Text(ModuleRegistry.byId(e.moduleId)?.name ?: e.moduleId, color = C.Muted, fontSize = 11.sp)
-                }
-            }
-        }
-    }
-}
-
-// ---------------- 整理主页 ----------------
+// ======================= 整理首页 =======================
 
 @Composable
 fun ArrangeScreen(onBack: () -> Unit) {
@@ -201,14 +401,14 @@ fun ArrangeScreen(onBack: () -> Unit) {
     var order by remember { mutableStateOf(ModuleRegistry.allOrdered(ctx).map { it.id }) }
     var version by remember { mutableIntStateOf(0) }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
-        TopBar("整理主页", onBack)
+        TopBar("整理首页", onBack)
         Column(Modifier.padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text("调整模块在主页上的顺序，或把暂时不用的隐藏起来。隐藏不会停止它的后台监控。", color = C.Muted, fontSize = 13.sp)
+            Text("调整模块在首页上的顺序，或把暂时不用的隐藏起来。隐藏不会停止它的后台监控。", color = C.Muted, fontSize = 13.sp)
             order.forEachIndexed { idx, id ->
                 val m = ModuleRegistry.byId(id) ?: return@forEachIndexed
                 val hidden = remember(version) { ModuleRegistry.isHidden(ctx, id) }
                 Row(
-                    Modifier.fillMaxWidth().background(C.Surface, RoundedCornerShape(16.dp)).padding(horizontal = 12.dp, vertical = 6.dp),
+                    Modifier.fillMaxWidth().background(C.Surface, RoundedCornerShape(16.dp)).padding(horizontal = 12.dp, vertical = 4.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(m.name, color = C.Text, fontSize = 15.sp, modifier = Modifier.weight(1f))
@@ -220,106 +420,50 @@ fun ArrangeScreen(onBack: () -> Unit) {
                         order = order.toMutableList().also { val t = it[idx + 1]; it[idx + 1] = it[idx]; it[idx] = t }
                         ModuleRegistry.saveOrder(ctx, order)
                     }) { Text("下移") }
-                    Switch(
-                        checked = !hidden,
-                        onCheckedChange = { ModuleRegistry.setHidden(ctx, id, !it); version++ },
-                        colors = SwitchDefaults.colors(checkedTrackColor = C.Gold),
-                    )
+                    TextButton(onClick = { ModuleRegistry.setHidden(ctx, id, !hidden); version++ }) {
+                        Text(if (hidden) "显示" else "隐藏", color = if (hidden) C.Gold else C.Muted)
+                    }
                 }
             }
         }
     }
 }
 
-// ---------------- 百宝箱设置：更新、备份、省电 ----------------
+// ======================= 备份与恢复 =======================
 
 @Composable
-fun GlobalSettingsScreen(onBack: () -> Unit, go: (Route) -> Unit) {
+fun BackupScreen(onBack: () -> Unit) {
     val ctx = LocalContext.current
-    val scope = rememberCoroutineScope()
-    val prefs = Store.global(ctx)
-    var precise by remember { mutableStateOf(prefs.getBoolean("precise_timing", true)) }
-    var updateMsg by remember { mutableStateOf("") }
-    var update by remember { mutableStateOf<UpdateInfo?>(null) }
     var importText by remember { mutableStateOf("") }
-    var backupMsg by remember { mutableStateOf("") }
-
+    var msg by remember { mutableStateOf("") }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
-        TopBar("百宝箱设置", onBack)
+        TopBar("数据备份与恢复", onBack)
         Column(Modifier.padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            SectionLabel("版本更新")
-            CardBox {
-                RowItem("当前版本", "v${BuildConfig.VERSION_NAME}")
-                Button(
-                    onClick = {
-                        updateMsg = "正在检查…"
-                        scope.launch {
-                            updateMsg = try {
-                                update = Updater.check()
-                                if (update == null) "已经是最新版本" else "发现新版本 v${update!!.versionName}"
-                            } catch (e: Exception) {
-                                "检查失败：${e.message ?: "网络错误"}"
-                            }
-                        }
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = C.Gold, contentColor = C.Bg),
-                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
-                ) { Text("检查更新") }
-                if (updateMsg.isNotBlank()) Text(updateMsg, color = C.Muted, fontSize = 13.sp)
-                update?.let { u ->
-                    if (u.notes.isNotBlank()) Text(u.notes, color = C.Muted, fontSize = 12.sp)
-                    OutlinedButton(onClick = {
-                        ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(u.apkUrl ?: u.pageUrl)))
-                    }, modifier = Modifier.fillMaxWidth()) { Text("下载并安装 v${u.versionName}", color = C.Text) }
-                    Text("下载完成后点开安装包即可覆盖安装，设置和记录都会保留。", color = C.Muted, fontSize = 12.sp)
-                }
-            }
-
-            SectionLabel("耗电")
-            CardBox {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text("交易时段锁屏也准点刷新", color = C.Text, fontSize = 15.sp)
-                        Text("开启后交易时段会保持 CPU 唤醒，提醒更及时，但更耗电", color = C.Muted, fontSize = 12.sp)
-                    }
-                    Switch(
-                        checked = precise,
-                        onCheckedChange = { precise = it; prefs.edit().putBoolean("precise_timing", it).apply() },
-                        colors = SwitchDefaults.colors(checkedTrackColor = C.Gold),
-                    )
-                }
-            }
-
-            SectionLabel("备份与恢复")
-            CardBox {
-                Text("把所有设置和提醒记录复制成一段文本，换手机或重装前保存好；恢复时粘贴回来。", color = C.Muted, fontSize = 13.sp)
-                OutlinedButton(onClick = {
+            Text("把所有设置、持仓交易明细和提醒记录复制成一段文本，换手机或重装前保存好；恢复时粘贴回来。", color = C.Muted, fontSize = 13.sp)
+            Button(
+                onClick = {
                     val cm = ctx.getSystemService(ClipboardManager::class.java)
                     cm.setPrimaryClip(ClipData.newPlainText("Eric百宝箱备份", Store.exportJson(ctx)))
-                    backupMsg = "已复制到剪贴板，请粘贴保存到备忘录或发给自己"
-                }, modifier = Modifier.fillMaxWidth()) { Text("导出备份到剪贴板", color = C.Text) }
-                OutlinedTextField(
-                    value = importText, onValueChange = { importText = it },
-                    label = { Text("粘贴备份文本") }, modifier = Modifier.fillMaxWidth(), maxLines = 4,
-                )
-                OutlinedButton(enabled = importText.isNotBlank(), onClick = {
-                    backupMsg = try {
-                        Store.importJson(ctx, importText); importText = ""
-                        MonitorService.sync(ctx)
-                        "恢复成功"
-                    } catch (e: Exception) {
-                        "恢复失败：${e.message}"
-                    }
-                }, modifier = Modifier.fillMaxWidth()) { Text("从文本恢复", color = C.Text) }
-                if (backupMsg.isNotBlank()) Text(backupMsg, color = C.Muted, fontSize = 13.sp)
-            }
-
-            SectionLabel("其他")
-            CardBox {
-                RowItem("后台保活设置", onClick = { go(Route.KeepAlive) })
-                RowItem("整理主页", onClick = { go(Route.Arrange) })
-            }
-            Box(Modifier.heightIn(min = 24.dp))
+                    msg = "已复制到剪贴板，请粘贴保存到备忘录或发给自己"
+                },
+                colors = ButtonDefaults.buttonColors(containerColor = C.Gold, contentColor = C.Bg),
+                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+            ) { Text("导出备份到剪贴板") }
+            OutlinedTextField(
+                value = importText, onValueChange = { importText = it },
+                label = { Text("粘贴备份文本") }, modifier = Modifier.fillMaxWidth(), maxLines = 6,
+            )
+            OutlinedButton(enabled = importText.isNotBlank(), onClick = {
+                msg = try {
+                    Store.importJson(ctx, importText); importText = ""
+                    ThemeManager.apply(ctx)
+                    MonitorService.sync(ctx)
+                    "恢复成功"
+                } catch (e: Exception) {
+                    "恢复失败：${e.message}"
+                }
+            }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("从文本恢复（会覆盖现有数据）", color = C.Text) }
+            if (msg.isNotBlank()) Text(msg, color = C.Muted, fontSize = 13.sp)
         }
     }
 }

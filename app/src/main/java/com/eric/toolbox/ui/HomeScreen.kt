@@ -16,10 +16,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -38,6 +35,7 @@ import com.eric.toolbox.core.Category
 import com.eric.toolbox.core.Heartbeat
 import com.eric.toolbox.core.ModuleRegistry
 import com.eric.toolbox.core.MonitorService
+import com.eric.toolbox.core.RunWindow
 import com.eric.toolbox.core.ToolModule
 import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
@@ -58,10 +56,7 @@ fun HomeScreen(go: (Route) -> Unit) {
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("Eric的百宝箱", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = C.Text, modifier = Modifier.weight(1f))
-            IconButton(onClick = { go(Route.Settings) }) { Icon(Icons.Filled.Settings, "百宝箱设置", tint = C.Muted) }
-        }
+        Text("Eric的百宝箱", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = C.Text)
 
         HealthBar(runningCount, beat, onFix = { MonitorService.sync(ctx); go(Route.KeepAlive) })
 
@@ -80,13 +75,6 @@ fun HomeScreen(go: (Route) -> Unit) {
             }
         }
 
-        SectionLabel("全局")
-        CardBox {
-            RowItem("全部提醒记录", onClick = { go(Route.Alerts) })
-            RowItem("整理主页（排序 / 隐藏模块）", onClick = { go(Route.Arrange) })
-            RowItem("后台保活设置", onClick = { go(Route.KeepAlive) })
-            RowItem("检查更新 · 备份设置", onClick = { go(Route.Settings) })
-        }
     }
 }
 
@@ -96,6 +84,7 @@ private fun HealthBar(runningCount: Int, beatMs: Long, onFix: () -> Unit) {
     val fmt = SimpleDateFormat("HH:mm", Locale.CHINA)
     val (text, fg, bg) = when {
         runningCount == 0 -> Triple("没有开启后台监控", C.Muted, C.Surface)
+        !RunWindow.isOpen(LocalContext.current) -> Triple("休息中 · ${RunWindow.describe(LocalContext.current)} 运行", C.Muted, C.Surface)
         !MonitorService.running || now - beatMs > 3 * 60_000 ->
             Triple("后台可能已被系统停止 · 点此修复", C.Warn, C.WarnBg)
         else -> Triple("后台运行正常 · $runningCount 个监控在跑", C.Ok, C.OkBg)

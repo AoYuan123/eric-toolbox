@@ -11,6 +11,8 @@ data class AlertEntry(val timeMs: Long, val moduleId: String, val title: String,
 /** 所有模块共用的提醒记录，最多保留 500 条。 */
 object AlertLog {
     const val PREFS = "alert_log"
+    /** 系统事件（如后台被停止）使用的模块 ID。 */
+    const val SYSTEM = "system"
     private const val KEY = "entries"
     private const val MAX = 500
 

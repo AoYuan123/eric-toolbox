@@ -1,6 +1,6 @@
 package com.eric.toolbox.modules.gold
 
-import androidx.compose.foundation.Canvas
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -12,334 +12,385 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Icon
-import androidx.compose.material3.LinearProgressIndicator
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Switch
-import androidx.compose.material3.SwitchDefaults
-import androidx.compose.material3.Text
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.List
-import androidx.compose.material.icons.automirrored.filled.TrendingUp
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.PathEffect
-import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.eric.toolbox.core.AlertLog
+import com.eric.toolbox.core.RunWindow
 import com.eric.toolbox.ui.C
-import com.eric.toolbox.ui.CardBox
 import com.eric.toolbox.ui.Mono
 import com.eric.toolbox.ui.Pill
-import com.eric.toolbox.ui.RowItem
-import com.eric.toolbox.ui.SectionLabel
-import com.eric.toolbox.ui.TopBar
+import com.eric.toolbox.ui.Segmented
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+/** 金价模块内部的页面。 */
+private enum class GoldPage { MAIN, SETTINGS, HOLD_JCJ, HOLD_RY }
+
 @Composable
-fun GoldScreen(onBack: () -> Unit) {
-    val ctx = LocalContext.current
-    var tab by remember { mutableIntStateOf(0) }
-
-    // 界面打开时自己也刷新（即使后台监控关闭也能看价格）
-    LaunchedEffect(Unit) {
-        while (true) {
-            runCatching { GoldModule.refresh(ctx) }
-            delay(GoldModule.config(ctx).intervalSec.coerceAtLeast(15) * 1000L)
-        }
+fun GoldRoot(onBack: () -> Unit) {
+    var page by remember { mutableStateOf(GoldPage.MAIN) }
+    BackHandler(enabled = page != GoldPage.MAIN) { page = GoldPage.MAIN }
+    when (page) {
+        GoldPage.MAIN -> GoldMain(onBack, onSettings = { page = GoldPage.SETTINGS }, onHold = { page = it })
+        GoldPage.SETTINGS -> GoldSettingsScreen { page = GoldPage.MAIN }
+        GoldPage.HOLD_JCJ -> HoldingsScreen("jcj") { page = GoldPage.MAIN }
+        GoldPage.HOLD_RY -> HoldingsScreen("ry") { page = GoldPage.MAIN }
     }
+}
 
-    Column(Modifier.fillMaxSize()) {
-        TopBar(listOf("实时金价", "实时金价 · 档位", "实时金价 · 设置")[tab], onBack)
-        Box(Modifier.weight(1f)) {
-            when (tab) {
-                0 -> QuoteTab()
-                1 -> TiersTab()
-                else -> SettingsTab()
-            }
-        }
-        Row(Modifier.fillMaxWidth().background(C.Surface).padding(vertical = 6.dp)) {
-            NavItem("行情", Icons.AutoMirrored.Filled.TrendingUp, tab == 0, Modifier.weight(1f)) { tab = 0 }
-            NavItem("档位", Icons.AutoMirrored.Filled.List, tab == 1, Modifier.weight(1f)) { tab = 1 }
-            NavItem("设置", Icons.Filled.Settings, tab == 2, Modifier.weight(1f)) { tab = 2 }
-        }
+internal fun f2(v: Double?) = v?.let { String.format(Locale.CHINA, "%.2f", it) } ?: "--"
+internal fun signed(v: Double) = (if (v >= 0) "+" else "") + String.format(Locale.CHINA, "%.2f", v)
+private val timeFmt = SimpleDateFormat("MM-dd HH:mm:ss", Locale.CHINA).apply { timeZone = BJ }
+private val hmFmt = SimpleDateFormat("HH:mm", Locale.CHINA).apply { timeZone = BJ }
+
+/** K 线缓存（10 分钟），避免每次切换都重新下载。 */
+private object KCache {
+    private val map = mutableMapOf<String, Pair<Long, List<Bar>>>()
+    suspend fun get(key: String, load: suspend () -> List<Bar>): List<Bar> {
+        val now = System.currentTimeMillis()
+        map[key]?.let { if (now - it.first < 10 * 60_000L) return it.second }
+        val v = load()
+        if (v.isNotEmpty()) map[key] = now to v
+        return v
     }
 }
 
 @Composable
-private fun NavItem(label: String, icon: ImageVector, active: Boolean, modifier: Modifier, onClick: () -> Unit) {
-    val color = if (active) C.Gold else C.Muted
-    Column(modifier.heightIn(min = 52.dp).clickable(onClick = onClick), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-        Icon(icon, null, tint = color)
-        Text(label, color = color, fontSize = 12.sp)
-    }
-}
-
-private fun f2(v: Double?) = v?.let { String.format(Locale.CHINA, "%.2f", it) } ?: "--"
-
-@Composable
-private fun QuoteTab() {
+private fun GoldMain(onBack: () -> Unit, onSettings: () -> Unit, onHold: (GoldPage) -> Unit) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
+    var product by remember { mutableStateOf("market") }
+    var trend by remember { mutableStateOf("h") }
+    var compareOpen by remember { mutableStateOf(false) }
+    var tick by remember { mutableLongStateOf(0L) }
     val snap by GoldModule.snapshot.collectAsState()
-    val points by GoldModule.points.collectAsState()
-    val cfg = GoldModule.config(ctx)
-    val last = GoldModule.lastAlerted(ctx)
-    val next = TierLogic.nextTier(last, cfg.startTier, cfg.step)
-    val p = snap?.primary
-    val fmtTime = remember { SimpleDateFormat("HH:mm:ss", Locale.CHINA) }
+    val status by GoldModule.status.collectAsState()
+    val bankSeries by GoldModule.bankSeries.collectAsState()
+    val cfg = remember(tick) { GoldModule.config(ctx) }
+    val last = remember(tick) { GoldModule.lastAlerted(ctx) }
 
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        CardBox {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("上海金 Au99.99 · 元/克", color = C.Muted, fontSize = 13.sp, modifier = Modifier.weight(1f))
-                when {
-                    snap == null -> Pill("获取中", C.Muted, C.Line)
-                    p == null -> Pill("获取失败", C.Warn, C.WarnBg)
-                    !snap!!.fresh -> Pill("数据延迟/休市", C.Warn, C.WarnBg)
-                    Session.isTrading(System.currentTimeMillis()) -> Pill("交易中", C.Ok, C.OkBg)
-                    else -> Pill("非交易时段", C.Muted, C.Line)
-                }
+    // 页面打开时自己刷新（即使后台监控关闭也能看价格）
+    LaunchedEffect(Unit) {
+        GoldModule.loadBankSeries(ctx)
+        while (true) {
+            runCatching { GoldModule.refresh(ctx) }
+            tick++
+            delay(15_000)
+        }
+    }
+
+    var chart by remember { mutableStateOf<ChartData?>(null) }
+    var chartErr by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(product, trend, if (trend == "h") tick / 4 else 0L, bankSeries.size) {
+        chartErr = null
+        chart = try {
+            buildChart(product, trend, snap, bankSeries, GoldModule.jcjPrev(ctx))
+        } catch (e: Exception) {
+            chartErr = "走势加载失败：${e.message ?: "网络错误"}"; null
+        }
+    }
+
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        // 顶栏：返回 · 标题 · 品种切换 · 设置
+        Row(Modifier.fillMaxWidth().padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "返回", tint = C.Muted) }
+            Text("实时金价", color = C.Text, fontSize = 18.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+            Segmented(listOf("market" to "大盘", "jcj" to "积存金", "ry" to "如意金"), product, compact = true) { product = it }
+            IconButton(onClick = onSettings) { Icon(Icons.Filled.Settings, "金价设置", tint = C.Muted) }
+        }
+
+        PriceHeader(product, snap, GoldModule.jcjPrev(ctx))
+        CompareRow(product, snap, compareOpen) { compareOpen = !compareOpen }
+
+        // 走势
+        Column(Modifier.fillMaxWidth().background(C.Surface, RoundedCornerShape(18.dp)).padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Segmented(listOf("h" to "分时", "d" to "日K", "m" to "月K", "y" to "年K"), trend, Modifier.fillMaxWidth()) { trend = it }
+            val c = chart
+            when {
+                c != null -> PriceChart(c)
+                chartErr != null -> Text(chartErr!!, color = C.Warn, fontSize = 12.sp, modifier = Modifier.height(190.dp))
+                else -> Box(Modifier.fillMaxWidth().height(190.dp), contentAlignment = Alignment.Center) { Text("加载中…", color = C.Muted, fontSize = 12.sp) }
             }
-            Text(f2(p?.price), color = C.Gold, fontSize = 52.sp, fontFamily = Mono, fontWeight = FontWeight.Medium)
-            if (p != null) {
-                val diff = p.price - cfg.basePrice
-                Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                    Text(
-                        "较基准 ${GoldModule.fmtBase(cfg.basePrice)}：" + (if (diff >= 0) "▲ +" else "▼ ") + f2(diff),
-                        color = if (diff >= 0) C.Up else C.Down, fontSize = 13.sp,
-                    )
-                    Text("高 ${f2(p.high)}  低 ${f2(p.low)}", color = C.Muted, fontSize = 13.sp)
-                }
-                p.prevClose?.let {
-                    val chg = p.price - it
-                    Text("较昨收 ${f2(it)}：" + (if (chg >= 0) "+" else "") + f2(chg), color = C.Muted, fontSize = 12.sp)
-                }
-            }
-            Sparkline(points.map { it.second }, next.toDouble())
-            Row {
+            StatsRow(product, snap, ctx)
+            Text(chartNote(product, trend) + " · 双指缩放，长按看价格，双击还原", color = C.Muted, fontSize = 11.sp)
+        }
+
+        // 档位概况
+        val next = TierLogic.nextTier(last, cfg.startTier, cfg.step)
+        val basisPrice = when (cfg.basis) {
+            Basis.MARKET -> snap?.market?.price
+            Basis.JCJ -> snap?.bank?.jcj
+            Basis.ANY -> listOfNotNull(snap?.market?.price, snap?.bank?.jcj).minOrNull()
+        }
+        Row(
+            Modifier.fillMaxWidth().background(C.Surface, RoundedCornerShape(14.dp)).clickable(onClick = onSettings).padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f)) {
                 Text(
-                    snap?.checks?.joinToString("  ") { "${it.source} ${if (it.code == "AU0") "沪金" else "T+D"} ${f2(it.price)}" } ?: "",
-                    color = C.Muted, fontSize = 11.sp, modifier = Modifier.weight(1f),
+                    "下一档 $next" + (basisPrice?.let { " · 还差 ${f2((it - next).coerceAtLeast(0.0))} 元" } ?: ""),
+                    color = C.Text, fontSize = 14.sp,
                 )
                 Text(
-                    if (snap?.verified == true) "多源一致 ✓" else "未通过校验",
-                    color = if (snap?.verified == true) C.Ok else C.Warn, fontSize = 11.sp,
+                    "按${cfg.basis.title} · 已提醒到 ${if (last > cfg.startTier) "无" else "$last"} · 上涨提醒 ${GoldModule.fmtBase(cfg.riseTarget)}",
+                    color = C.Muted, fontSize = 12.sp,
                 )
+            }
+            Text("›", color = C.Muted, fontSize = 18.sp)
+        }
+
+        if (product != "market") {
+            Row(
+                Modifier.fillMaxWidth().background(C.Surface, RoundedCornerShape(14.dp))
+                    .clickable { onHold(if (product == "jcj") GoldPage.HOLD_JCJ else GoldPage.HOLD_RY })
+                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Box(Modifier.size(36.dp).background(C.GoldBg, RoundedCornerShape(12.dp)), contentAlignment = Alignment.Center) {
+                    Icon(Icons.Filled.AccountBalanceWallet, null, tint = C.Gold, modifier = Modifier.size(18.dp))
+                }
+                Column(Modifier.weight(1f)) {
+                    Text(if (product == "jcj") "我的积存金" else "我的如意金积存", color = C.Text, fontSize = 15.sp)
+                    Text(if (product == "jcj") "持仓、盈亏、交易明细" else "持仓、按赎回价算的市值、交易明细", color = C.Muted, fontSize = 12.sp)
+                }
+                Text("›", color = C.Muted, fontSize = 18.sp)
             }
         }
 
-        CardBox {
-            Row {
-                Text("下一档提醒", color = C.Muted, fontSize = 14.sp, modifier = Modifier.weight(1f))
-                if (p != null) Text("还差 ${f2((p.price - next).coerceAtLeast(0.0))} 元", color = C.Muted, fontSize = 13.sp)
-            }
-            Text("$next", color = C.Text, fontSize = 30.sp, fontFamily = Mono)
-            if (p != null) {
-                val progress = (1 - ((p.price - next) / cfg.step)).coerceIn(0.0, 1.0).toFloat()
-                LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth().height(8.dp), color = C.Gold, trackColor = C.Line)
-            }
-            val lastText = if (last > cfg.startTier) "尚无" else "$last"
-            Text("已提醒到：$lastText · 档位 ${cfg.startTier} 起每 ${cfg.step} 元一档", color = C.Muted, fontSize = 12.sp)
-        }
-
-        Row {
+        // 运行状态
+        val now = System.currentTimeMillis()
+        val stale = status.lastOkMs == 0L || now - status.lastOkMs > 2 * 60_000L
+        Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(
-                "更新 " + (p?.timeMs?.let { fmtTime.format(Date(it)) } ?: "--") + "（行情时间）",
-                color = C.Muted, fontSize = 12.sp, modifier = Modifier.weight(1f),
+                when {
+                    status.lastOkMs == 0L && status.error != null -> "获取失败：${status.error}"
+                    status.lastOkMs == 0L -> "正在获取…"
+                    else -> "最后成功获取 ${timeFmt.format(Date(status.lastOkMs))} · " + if (stale) "已超过 2 分钟未更新" else if (status.error != null) "部分来源异常" else "正常"
+                },
+                color = if (stale && status.lastOkMs != 0L || (status.lastOkMs == 0L && status.error != null)) C.Warn else C.Muted,
+                fontSize = 12.sp, modifier = Modifier.weight(1f),
             )
-            Text("立即刷新", color = C.Gold, fontSize = 12.sp, modifier = Modifier.clickable { scope.launch { runCatching { GoldModule.refresh(ctx) } } })
+            Text("立即刷新", color = C.Gold, fontSize = 12.sp, modifier = Modifier.clickable {
+                scope.launch { runCatching { GoldModule.refresh(ctx) }; tick++ }
+            }.padding(6.dp))
         }
-        if (!cfg.enabled) Text("后台监控已关闭，只有打开本页时才刷新。可在“设置”里开启。", color = C.Warn, fontSize = 12.sp)
+        if (status.error != null && status.lastOkMs != 0L) Text(status.error!!, color = C.Muted, fontSize = 11.sp, modifier = Modifier.padding(horizontal = 4.dp))
+        if (!cfg.enabled) Text("后台监控已关闭，只有打开本页时才刷新。可在右上角设置里开启。", color = C.Warn, fontSize = 12.sp)
+        else if (!RunWindow.isOpen(ctx)) Text("当前不在运行时段（${RunWindow.describe(ctx)}），后台不监控、不提醒。", color = C.Muted, fontSize = 12.sp)
         Box(Modifier.height(12.dp))
     }
 }
 
 @Composable
-private fun Sparkline(values: List<Double>, tierLine: Double) {
-    if (values.size < 2) {
-        Text("走势图会在采到更多数据后显示", color = C.Muted, fontSize = 11.sp)
-        return
-    }
-    val min = minOf(values.min(), tierLine) - 0.5
-    val max = maxOf(values.max(), tierLine) + 0.5
-    Canvas(Modifier.fillMaxWidth().height(70.dp)) {
-        fun y(v: Double) = (size.height * (1 - (v - min) / (max - min))).toFloat()
-        val path = Path()
-        values.forEachIndexed { i, v ->
-            val x = size.width * i / (values.size - 1)
-            if (i == 0) path.moveTo(x, y(v)) else path.lineTo(x, y(v))
+private fun PriceHeader(product: String, snap: Snapshot?, jcjPrev: Double?) {
+    val m = snap?.market; val b = snap?.bank
+    Column(Modifier.padding(horizontal = 4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        when (product) {
+            "market" -> {
+                val chg = if (m?.prevClose != null) m.price - m.prevClose else null
+                val color = when { chg == null -> C.Text; chg >= 0 -> C.Up; else -> C.Down }
+                BigPrice(f2(m?.price), color, chg?.let { signed(it) }, chg?.let { String.format(Locale.CHINA, "%+.2f%%", it / m!!.prevClose!! * 100) })
+                Text(
+                    (m?.timeMs?.let { timeFmt.format(Date(it)) } ?: "--") + " · " + (if (Session.marketTrading(System.currentTimeMillis())) "交易中" else "休市") + " · 上海金 Au99.99（东方财富）",
+                    color = C.Muted, fontSize = 12.sp,
+                )
+            }
+            "jcj" -> {
+                val chg = if (b?.jcj != null && jcjPrev != null) b.jcj - jcjPrev else null
+                val color = when { chg == null -> C.Gold; chg >= 0 -> C.Up; else -> C.Down }
+                BigPrice(f2(b?.jcj), color, chg?.let { signed(it) }, chg?.let { String.format(Locale.CHINA, "%+.2f%%", it / jcjPrev!! * 100) })
+                Text(
+                    (b?.timeMs?.let { timeFmt.format(Date(it)) } ?: "--") + " · " + (if (Session.bankTrading(System.currentTimeMillis())) "交易中" else "休市") + " · 工行积存金（每 3 秒更新）",
+                    color = C.Muted, fontSize = 12.sp,
+                )
+                Text("卖出到手价（扣 0.5% 手续费）${f2(b?.jcj?.let { it * 0.995 })}", color = C.Muted, fontSize = 12.sp)
+            }
+            else -> {
+                BigPrice(f2(b?.ryBuy), C.Gold, null, null)
+                Text(
+                    (b?.timeMs?.let { timeFmt.format(Date(it)) } ?: "--") + " · 工行如意金积存（积存价）",
+                    color = C.Muted, fontSize = 12.sp,
+                )
+                val spread = if (b?.ryBuy != null && b.rySell != null) b.ryBuy - b.rySell else null
+                Text("赎回价 ${f2(b?.rySell)} · 买卖价差 ${f2(spread)}", color = C.Muted, fontSize = 12.sp)
+            }
         }
-        drawPath(path, C.Gold, style = Stroke(width = 4f))
-        val ty = y(tierLine)
-        drawLine(C.Muted, Offset(0f, ty), Offset(size.width, ty), strokeWidth = 2f, pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 10f)))
     }
 }
 
 @Composable
-private fun TiersTab() {
-    val ctx = LocalContext.current
-    var version by remember { mutableIntStateOf(0) }
-    val cfg = GoldModule.config(ctx)
-    val last = remember(version) { GoldModule.lastAlerted(ctx) }
-    val snap by GoldModule.snapshot.collectAsState()
-    val price = snap?.primary?.price
-    val next = TierLogic.nextTier(last, cfg.startTier, cfg.step)
-    val logs = remember(version) { AlertLog.forModule(ctx, GoldModule.id) }
-    val fmt = remember { SimpleDateFormat("MM/dd HH:mm", Locale.CHINA) }
-    // 显示从起始档位往下、至少到“下一档往下 3 档”
-    val bottom = minOf(next, cfg.startTier) - cfg.step * 3
-    val tiers = generateSequence(cfg.startTier) { it - cfg.step }.takeWhile { it >= bottom }.toList()
+private fun BigPrice(price: String, color: Color, chg: String?, pct: String?) {
+    Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(price, color = color, fontSize = 44.sp, fontFamily = Mono, fontWeight = FontWeight.Medium)
+        Text("元/克", color = C.Muted, fontSize = 13.sp, modifier = Modifier.padding(bottom = 8.dp))
+        if (chg != null) Text(chg, color = color, fontSize = 16.sp, fontFamily = Mono, modifier = Modifier.padding(bottom = 7.dp))
+        if (pct != null) Text(pct, color = color, fontSize = 16.sp, fontFamily = Mono, modifier = Modifier.padding(bottom = 7.dp))
+    }
+}
 
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        CardBox {
-            tiers.forEach { t ->
-                Row(Modifier.fillMaxWidth().heightIn(min = 44.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text("$t", color = C.Text, fontSize = 20.sp, fontFamily = Mono, modifier = Modifier.weight(0.3f))
-                    val note = if (t == next && price != null) "还差 ${f2((price - t).coerceAtLeast(0.0))} 元" else ""
-                    Text(note, color = C.Muted, fontSize = 13.sp, modifier = Modifier.weight(0.4f))
-                    when {
-                        t >= last -> Pill("已提醒", C.Muted, C.Line)
-                        t == next -> Pill("下一档", C.Bg, C.Gold)
-                        else -> Pill("待触发", C.Muted, C.Bg)
+@Composable
+private fun CompareRow(product: String, snap: Snapshot?, open: Boolean, onToggle: () -> Unit) {
+    val m = snap?.market; val b = snap?.bank
+    val (ok, label) = when (product) {
+        "market" -> snap?.marketVerified() to null
+        "jcj" -> snap?.bankVerified() to null
+        else -> null to "仅供参考"
+    }
+    val mismatch = ok == false && snap != null
+    val expanded = open || mismatch
+    fun rel(a: Double?, base: Double?) = if (a != null && base != null) String.format(Locale.CHINA, "%+.2f%%", (a - base) / base * 100) else ""
+    val rows: List<Triple<String, Double?, String>> = when (product) {
+        "market" -> listOf(
+            Triple("黄金 T+D（东方财富）", snap?.td?.price, rel(snap?.td?.price, m?.price)),
+            Triple("沪金连续（新浪）", snap?.futures?.price, rel(snap?.futures?.price, m?.price)),
+            Triple("工行积存金", b?.jcj, rel(b?.jcj, m?.price)),
+        )
+        "jcj" -> listOf(
+            Triple("大盘 Au99.99", m?.price, rel(m?.price, b?.jcj)),
+            Triple("黄金 T+D", snap?.td?.price, rel(snap?.td?.price, b?.jcj)),
+            Triple("如意金积存 赎回价", b?.rySell, rel(b?.rySell, b?.jcj)),
+        )
+        else -> listOf(
+            Triple("工行积存金", b?.jcj, ""),
+            Triple("大盘 Au99.99", m?.price, ""),
+        )
+    }
+    Column(Modifier.fillMaxWidth().background(C.Surface, RoundedCornerShape(14.dp))) {
+        Row(
+            Modifier.fillMaxWidth().heightIn(min = 44.dp).clickable(onClick = onToggle).padding(horizontal = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("多源比对", color = C.Text, fontSize = 14.sp, modifier = Modifier.weight(1f))
+            when {
+                label != null -> Pill(label, C.Muted, C.Line)
+                snap == null -> Pill("获取中", C.Muted, C.Line)
+                mismatch -> Pill("不一致 · 已暂停提醒", C.Warn, C.WarnBg)
+                else -> Pill("一致 ✓", C.Ok, C.OkBg)
+            }
+            Text(if (expanded) "  ▴" else "  ▾", color = C.Muted, fontSize = 14.sp)
+        }
+        if (expanded) {
+            Column(Modifier.padding(start = 14.dp, end = 14.dp, bottom = 10.dp)) {
+                rows.forEach { (name, v, d) ->
+                    Row(Modifier.fillMaxWidth().heightIn(min = 28.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text(name, color = C.Muted, fontSize = 13.sp, modifier = Modifier.weight(1f))
+                        Text(f2(v), color = C.Text, fontSize = 13.sp, fontFamily = Mono)
+                        Text("  $d", color = if (mismatch) C.Warn else C.Muted, fontSize = 12.sp)
                     }
                 }
-            }
-            Text("无下限，按 ${cfg.step} 元一档继续向下", color = C.Muted, fontSize = 12.sp)
-        }
-        Text("· 每个档位只提醒一次\n· 价格回升超过上次提醒档位 ${cfg.step} 元以上，自动重置到当前价上方最近一档\n· 数据过期（如节假日休市）或多源校验不通过时不提醒", color = C.Muted, fontSize = 13.sp)
-
-        SectionLabel("提醒记录")
-        CardBox {
-            if (logs.isEmpty()) Text("还没有提醒记录", color = C.Muted, fontSize = 13.sp)
-            logs.take(50).forEach { e ->
-                Row {
-                    Text(e.title, color = C.Text, fontSize = 14.sp, modifier = Modifier.weight(1f))
-                    Text(fmt.format(Date(e.timeMs)), color = C.Muted, fontSize = 12.sp)
-                }
+                if (product == "ry") Text("如意金是实物积存报价，买卖价差较大，不参与一致性校验。", color = C.Muted, fontSize = 11.sp)
+                if (mismatch) Text("与其他来源偏差超过容差，可能是数据异常，此时暂停提醒。", color = C.Warn, fontSize = 11.sp)
             }
         }
-        OutlinedButton(onClick = { GoldModule.resetTiers(ctx); version++ }, modifier = Modifier.heightIn(min = 48.dp)) {
-            Text("手动重置档位", color = C.Text)
-        }
-        Box(Modifier.height(12.dp))
     }
 }
 
 @Composable
-private fun SettingsTab() {
-    val ctx = LocalContext.current
-    val cfg0 = remember { GoldModule.config(ctx) }
-    var enabled by remember { mutableStateOf(cfg0.enabled) }
-    var base by remember { mutableStateOf(GoldModule.fmtBase(cfg0.basePrice)) }
-    var start by remember { mutableStateOf(cfg0.startTier.toString()) }
-    var step by remember { mutableStateOf(cfg0.step.toString()) }
-    var interval by remember { mutableIntStateOf(cfg0.intervalSec) }
-    var day by remember { mutableStateOf(cfg0.daySession) }
-    var night by remember { mutableStateOf(cfg0.nightSession) }
-    var msg by remember { mutableStateOf("") }
-
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        CardBox {
-            ToggleRow("后台监控", "关闭后不再提醒", enabled) { enabled = it }
-        }
-        SectionLabel("档位规则")
-        CardBox {
-            NumberField("基准价（元/克）", base) { base = it }
-            NumberField("首个提醒档位", start) { start = it }
-            NumberField("每档间隔（元）", step) { step = it }
-            Text("修改首个档位或间隔后，已提醒记录会重置，从首个档位重新开始。", color = C.Muted, fontSize = 12.sp)
-        }
-        SectionLabel("刷新与时段")
-        CardBox {
-            Text("交易时段刷新间隔", color = C.Text, fontSize = 15.sp)
-            Row(Modifier.fillMaxWidth().background(C.Bg, RoundedCornerShape(12.dp)).padding(4.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                listOf(15, 30, 60).forEach { v ->
-                    val on = interval == v
-                    Box(
-                        Modifier.weight(1f).heightIn(min = 40.dp).background(if (on) C.Gold else C.Bg, RoundedCornerShape(9.dp)).clickable { interval = v },
-                        contentAlignment = Alignment.Center,
-                    ) { Text("$v 秒", color = if (on) C.Bg else C.Muted, fontSize = 14.sp) }
-                }
+private fun StatsRow(product: String, snap: Snapshot?, ctx: android.content.Context) {
+    val m = snap?.market; val b = snap?.bank
+    val items: List<Triple<String, String, Color>> = when (product) {
+        "market" -> listOf(
+            Triple("最高", f2(m?.high), C.Up), Triple("最低", f2(m?.low), C.Down),
+            Triple("昨收", f2(m?.prevClose), C.Text),
+            Triple("今开", f2(m?.open), if (m?.open != null && m.prevClose != null && m.open < m.prevClose) C.Down else C.Up),
+        )
+        "jcj" -> listOf(
+            Triple("最高", f2(b?.jcjHigh), C.Up), Triple("最低", f2(b?.jcjLow), C.Down),
+            Triple("昨收", GoldModule.jcjPrev(ctx)?.let { f2(it) } ?: "记录中", C.Text),
+            Triple("今开", GoldModule.jcjOpen(ctx)?.let { f2(it) } ?: "记录中", C.Text),
+        )
+        else -> listOf(
+            Triple("积存价", f2(b?.ryBuy), C.Gold), Triple("赎回价", f2(b?.rySell), C.Text),
+            Triple("价差", f2(if (b?.ryBuy != null && b.rySell != null) b.ryBuy - b.rySell else null), C.Muted),
+            Triple("更新", b?.timeMs?.let { hmFmt.format(Date(it)) } ?: "--", C.Muted),
+        )
+    }
+    Row(Modifier.fillMaxWidth().padding(top = 6.dp)) {
+        items.forEach { (l, v, c) ->
+            Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(l, color = C.Muted, fontSize = 12.sp)
+                Text(v, color = c, fontSize = 15.sp, fontFamily = Mono)
             }
-            Text("非交易时段每 15 分钟查一次，省电省流量。", color = C.Muted, fontSize = 12.sp)
-            ToggleRow("日盘", "9:00–15:30", day) { day = it }
-            ToggleRow("夜盘", "20:00–次日 2:30", night) { night = it }
         }
-        SectionLabel("数据源")
-        CardBox {
-            RowItem("主源", "东方财富 Au99.99")
-            RowItem("校验源", "东方财富 T+D · 新浪 沪金")
-            Text("主源与至少一个校验源偏差在容差内（T+D 1.5%、沪金 3%），且行情时间在 10 分钟内，才会提醒。", color = C.Muted, fontSize = 12.sp)
-        }
-        Button(
-            onClick = {
-                val b = base.toDoubleOrNull()
-                val s = start.toIntOrNull()
-                val st = step.toIntOrNull()
-                msg = when {
-                    b == null || b <= 0 -> "基准价需要是大于 0 的数字"
-                    s == null || s <= 0 -> "首个档位需要是大于 0 的整数"
-                    st == null || st <= 0 || st > s -> "每档间隔需要是大于 0、且不超过首个档位的整数"
-                    else -> {
-                        GoldModule.saveConfig(ctx, GoldConfig(enabled, b, s, st, interval, day, night))
-                        "已保存"
-                    }
-                }
-            },
-            colors = ButtonDefaults.buttonColors(containerColor = C.Gold, contentColor = C.Bg),
-            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
-        ) { Text("保存设置") }
-        if (msg.isNotBlank()) Text(msg, color = if (msg == "已保存") C.Ok else C.Warn, fontSize = 13.sp)
-        Box(Modifier.height(12.dp))
     }
 }
 
-@Composable
-private fun ToggleRow(title: String, sub: String, checked: Boolean, onChange: (Boolean) -> Unit) {
-    Row(Modifier.fillMaxWidth().heightIn(min = 48.dp), verticalAlignment = Alignment.CenterVertically) {
-        Column(Modifier.weight(1f)) {
-            Text(title, color = C.Text, fontSize = 15.sp)
-            Text(sub, color = C.Muted, fontSize = 12.sp)
+private fun chartNote(product: String, trend: String): String = when {
+    trend == "h" && product == "market" -> "分时：当日每分钟价格，虚线为昨收"
+    trend == "h" -> "分时：工行无公开历史，由 App 每次刷新时记录"
+    product != "market" -> "K 线显示大盘 Au99.99（工行无公开历史）"
+    else -> "K 线：大盘 Au99.99，元/克"
+}
+
+/** 根据品种和周期生成走势图数据。 */
+private suspend fun buildChart(
+    product: String, trend: String, snap: Snapshot?, bank: List<GoldModule.BankPoint>, jcjPrev: Double?,
+): ChartData {
+    if (trend == "h") {
+        if (product == "market") {
+            val bars = KCache.get("min-${System.currentTimeMillis() / 60_000}") { GoldSource.klines(1, 900) }
+            if (bars.isEmpty()) return ChartData.Line(emptyList(), emptyList(), null, "20:00" to "15:30")
+            val start = Session.marketDayStart(bars.last().timeMs)
+            val day = bars.filter { it.timeMs >= start }
+            val cur = snap?.market?.price ?: day.last().close
+            val pts = day.mapNotNull { b ->
+                if (abs(b.close - cur) / cur > 0.05) return@mapNotNull null // 过滤异常成交
+                Session.marketAxisMinute(b.timeMs)?.let { (it / 780f) to b.close }
+            }
+            val tips = day.filter { abs(it.close - cur) / cur <= 0.05 && Session.marketAxisMinute(it.timeMs) != null }.map { hmFmt.format(Date(it.timeMs)) }
+            return ChartData.Line(pts, tips, snap?.market?.prevClose, "20:00 夜盘" to "次日 15:30")
         }
-        Switch(checked = checked, onCheckedChange = onChange, colors = SwitchDefaults.colors(checkedTrackColor = C.Gold))
+        val pts = bank.mapNotNull { p ->
+            val v = if (product == "jcj") p.jcj else p.ryBuy
+            val x = Session.bankAxisMinute(p.t)
+            if (v != null && x != null) (x / 800f) to v else null
+        }
+        val tips = bank.filter { (if (product == "jcj") it.jcj else it.ryBuy) != null && Session.bankAxisMinute(it.t) != null }
+            .map { hmFmt.format(Date(it.t)) }
+        return ChartData.Line(pts, tips, if (product == "jcj") jcjPrev else null, "09:10" to "22:30")
+    }
+    return when (trend) {
+        "d" -> {
+            val d = GoldSource.clean(KCache.get("d") { GoldSource.klines(101, 120) })
+            ChartData.Candles(d, (d.firstOrNull()?.label ?: "") to (d.lastOrNull()?.label ?: ""))
+        }
+        "m" -> {
+            val m = GoldSource.clean(KCache.get("m") { GoldSource.klines(103, 240) }).takeLast(36).map { it.copy(label = it.label.take(7)) }
+            ChartData.Candles(m, (m.firstOrNull()?.label ?: "") to (m.lastOrNull()?.label ?: ""))
+        }
+        else -> {
+            val y = GoldSource.yearly(GoldSource.clean(KCache.get("m") { GoldSource.klines(103, 240) }))
+            ChartData.Candles(y, (y.firstOrNull()?.label ?: "") to (y.lastOrNull()?.label ?: ""))
+        }
     }
 }
 
-@Composable
-private fun NumberField(label: String, value: String, onChange: (String) -> Unit) {
-    OutlinedTextField(
-        value = value, onValueChange = { v -> onChange(v.filter { it.isDigit() || it == '.' }) },
-        label = { Text(label) }, singleLine = true,
-        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-        modifier = Modifier.fillMaxWidth(),
-    )
-}
+private fun abs(x: Double) = kotlin.math.abs(x)

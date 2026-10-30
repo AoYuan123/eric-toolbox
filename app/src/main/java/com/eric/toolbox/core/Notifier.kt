@@ -65,9 +65,16 @@ object Notifier {
             .setContentIntent(openApp(ctx, null))
             .build()
 
+    /** 测试提醒：走和真实提醒一样的渠道，但不写入记录。 */
+    fun test(ctx: Context) = post(ctx, null, "测试提醒", "能看到这条，说明到价提醒可以正常送达。")
+
     /** 发一条到价提醒，并写入提醒记录。 */
     fun alert(ctx: Context, moduleId: String, title: String, body: String) {
         AlertLog.add(ctx, AlertEntry(System.currentTimeMillis(), moduleId, title, body))
+        post(ctx, moduleId, title, body)
+    }
+
+    private fun post(ctx: Context, moduleId: String?, title: String, body: String) {
         if (!canPost(ctx)) return
         val n = NotificationCompat.Builder(ctx, CH_ALERT)
             .setSmallIcon(R.drawable.ic_stat)
