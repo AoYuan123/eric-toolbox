@@ -3,6 +3,7 @@ package com.eric.toolbox.core
 import android.content.Context
 import com.eric.toolbox.modules.datecalc.DateCalcModule
 import com.eric.toolbox.modules.gold.GoldModule
+import com.eric.toolbox.modules.pan.PanModule
 import com.eric.toolbox.modules.trials.TrialModule
 
 /**
@@ -13,6 +14,7 @@ object ModuleRegistry {
         GoldModule,
         TrialModule,
         DateCalcModule,
+        PanModule,
         // 以后的新模块加在这里
     )
 
