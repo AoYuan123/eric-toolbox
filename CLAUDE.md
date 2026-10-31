@@ -3,7 +3,7 @@
 > 这是 Eric（GitHub 账号 AoYuan123）的个人 Android 工具箱 App。用户不写代码，需求用中文口述；
 > 每次改动前**先出界面预览给他确认**，确认后再改代码、发布。所有回答必须基于实测数据，不编造。
 
-## 1. 现状（截至 2026-10-30，v1.0.5）
+## 1. 现状（截至 2026-10-31）
 - 仓库：`AoYuan123/eric-toolbox`（公开）。推送到 `main` → GitHub Actions 自动跑单元测试、编译、签名、发布 Release。
 - 版本号 = `1.0.<Actions 运行序号>`，所以会跳号（编译失败的那次也占号）。
 - 已安装在用户手机上；App 内「我的 › 检查更新」读 GitHub Releases。
@@ -35,8 +35,8 @@ app/src/main/java/com/eric/toolbox/
 ├── core/
 │   ├── ToolModule.kt      模块接口（id/name/category/icon/HomeSummary/Screen/background）
 │   ├── ModuleRegistry.kt  模块登记表 ← 新模块在这里加一行
-│   ├── MonitorService.kt  统一前台服务（specialUse 类型），每个模块一个循环；心跳；唤醒锁
-│   ├── RunWindow.kt       运行时段（默认工作日 8:00–23:00），时段外停止，精确闹钟唤醒（WakeReceiver）
+│   ├── MonitorService.kt  统一前台服务（specialUse 类型），全天运行，每个模块一个循环；心跳（含预计下次醒来时间）；唤醒锁
+│   ├── RunWindow.kt       提醒时段（默认工作日 8:00–23:00）；数据全天更新，时段开始时精确闹钟唤醒（WakeReceiver）
 │   ├── Watchdog.kt        WorkManager 15 分钟看门狗 + 开机/更新后自启
 │   ├── Notifier.kt        通知渠道、到价提醒、测试提醒
 │   ├── AlertLog.kt        提醒记录（含 system 事件，如“后台曾被系统停止”）
@@ -50,6 +50,7 @@ app/src/main/java/com/eric/toolbox/
 └── modules/gold/          实时金价模块
     ├── GoldLogic.kt       纯逻辑（可单测）：档位、上涨提醒、智能间隔、交易时段、持仓移动加权成本
     ├── GoldSource.kt      行情源与解析（东方财富、新浪、工行 HTML、K 线）+ 异常值过滤
+    ├── KlineRepo.kt       走势数据：东方财富优先 → 新浪沪金主连替代（界面标注差价）→ 手机缓存；分钟线增量拉取
     ├── GoldModule.kt      设置、刷新与提醒判断、工行价格记录、交易明细存储、后台任务
     ├── GoldChart.kt       走势图（纵坐标、缩放、长按十字线）
     ├── GoldScreen.kt      实时金价主页（大盘/积存金/如意金切换、多源比对、走势、入口）
@@ -68,7 +69,8 @@ app/src/test/.../GoldLogicTest.kt   单元测试（含 10/30 实测数据）
 - 两次查询之间用东方财富分钟线补漏（10/30 曾漏掉 22:24 的 836）。
 - 上涨提醒默认 1000 元/克；开盘提醒；智能刷新（>8 元 3 分钟，3–8 元 60 秒，3 元内 15/30 秒）。
 - 只在数据新鲜（大盘 10 分钟、工行 5 分钟内）且多源一致（T+D 1.5%、沪金 3%、积存金对大盘 2%）时提醒。
-- 运行时段：周一至周五 8:00–23:00，周末不运行。
+- 数据全天更新；**提醒时段**周一至周五 8:00–23:00，周末不提醒（10/31 用户改的）。时段外只记录最低/最高价，时段开始时汇总提醒一次（“夜间跌破 840、830”）。
+- 刷新间隔：不交易 30 分钟；时段外的夜盘 2 分钟（只记录）；时段内按智能刷新。
 - 积存金手续费买卖各 0.5%（到手价 = 实时价 × 0.995）；如意金手续费规则未查到，由用户手填。
 - 工行无公开历史：积存金/如意金分时、昨收、今开由 App 自己记录；日/月/年 K 显示大盘。
 - 历史 K 线里 1000+、1256 是真实价格（2026 年初金价确实过千），只过滤偏离开收盘 ±10% 的异常影线（如 2016-03 最低 181.2）。
@@ -76,6 +78,8 @@ app/src/test/.../GoldLogicTest.kt   单元测试（含 10/30 实测数据）
 ## 6. 数据源（2026-10-30 实测）
 - 东方财富实时：`https://push2.eastmoney.com/api/qt/ulist.np/get?secids=118.AU9999,118.AUTD&fields=f1,f2,f12,f15,f16,f17,f18,f124`（价格 ÷10^f1，f124 秒级时间戳）
 - 东方财富 K 线：`https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=118.AU9999&fields1=f1&fields2=f51,f52,f53,f54,f55&klt=1|101|103&fqt=0&end=20500101&lmt=N`
+- 10/31 起东方财富 K 线路径（push2his …/kline/get、trends2）在用户网络下连接被断开（实时接口正常），疑似限流，原因未最终确认。走势改为：东方财富失败后 10 分钟内不再请求，改用新浪：
+  - 新浪沪金主连日线 `https://stock2.finance.sina.com.cn/futures/api/jsonp.php/var%20_k=/InnerFuturesNewService.getDailyKLine?symbol=AU0`（2008 年至今），分钟线 `…/InnerFuturesNewService.getFewMinLine?symbol=AU0&type=1`（约 2 天）。是期货价，与 Au99.99 有差价；会出现未来时间的异常条目（已过滤）。档位补漏只用东方财富，不用新浪。
 - 新浪沪金：`https://hq.sinajs.cn/list=nf_AU0`（需 Referer `https://finance.sina.com.cn/`，GBK；第 8 位为最新价）。新浪上没找到上海金现货代码。
 - 工行：`https://mybank.icbc.com.cn/icbc/newperbank/perbank3/gold/goldaccrual_query_out.jsp`（GBK；积存金产品号 080020000521，如意金 080020000501；交易时间工作日 9:10–22:30，每 3 秒更新）
 - 这些都是网站公开接口，不是官方 API，改版后要更新 `GoldSource.kt`。

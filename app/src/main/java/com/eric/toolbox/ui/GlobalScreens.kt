@@ -143,7 +143,7 @@ fun MineScreen(go: (Route) -> Unit) {
                 Notifier.test(ctx); testMsg = if (Notifier.canPost(ctx)) "已发送" else "通知未开启"
             })
             RowItem("后台保活设置", "$keepAliveDone / 5 项已完成", onClick = { go(Route.KeepAlive) })
-            RowItem("运行时段", windowText, sub = "时段外不运行、不提醒，到点自动唤醒", onClick = { showWindow = true })
+            RowItem("提醒时段", windowText, sub = "数据全天更新；时段外的跌档在时段开始时汇总提醒一次", onClick = { showWindow = true })
         }
 
         SectionLabel("通用")
@@ -201,14 +201,14 @@ private fun WindowDialog(ctx: Context, onDone: () -> Unit) {
     var err by remember { mutableStateOf("") }
     AlertDialog(
         onDismissRequest = onDone,
-        title = { Text("运行时段") },
+        title = { Text("提醒时段") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     OutlinedTextField(start, { start = it.filter(Char::isDigit) }, label = { Text("开始（时）") }, modifier = Modifier.weight(1f), singleLine = true)
                     OutlinedTextField(end, { end = it.filter(Char::isDigit) }, label = { Text("结束（时）") }, modifier = Modifier.weight(1f), singleLine = true)
                 }
-                ToggleRow("周末不运行", null, weekendOff) { weekendOff = it }
+                ToggleRow("周末不提醒", null, weekendOff) { weekendOff = it }
                 if (err.isNotBlank()) Text(err, color = C.Warn, fontSize = 12.sp)
             }
         },

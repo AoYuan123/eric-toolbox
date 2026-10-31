@@ -19,11 +19,11 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import java.util.Calendar
 
 /**
  * 统一的后台服务：一个常驻通知 + 为每个开启了后台任务的模块各跑一个循环。
- * 只在运行时段内工作（默认工作日 8:00–23:00），时段外自动停止并预约下次唤醒。
+ * 数据全天更新；提醒只在提醒时段（默认工作日 8:00–23:00）发出，由各模块自己判断。
+ * 时段外各模块会放慢刷新；另外在提醒时段开始时用精确闹钟唤醒一次，作为保险。
  * 某个模块出错只会记录日志，不影响其他模块。
  */
 class MonitorService : Service() {
@@ -49,14 +49,12 @@ class MonitorService : Service() {
     }
 
     private fun syncJobs() {
-        if (!RunWindow.isOpen(this)) {
-            shutDownUntilNextWindow()
-            return
-        }
+        RunWindow.scheduleWake(this)
         val wanted = ModuleRegistry.all.filter { it.background?.isEnabled(this) == true }
         val wantedIds = wanted.map { it.id }.toSet()
         jobs.keys.filter { it !in wantedIds }.forEach { jobs.remove(it)?.cancel() }
         if (wanted.isEmpty()) {
+            Heartbeat.clear(this)
             stopSelf()
             return
         }
@@ -65,33 +63,25 @@ class MonitorService : Service() {
             val task = m.background!!
             jobs[m.id] = scope.launch {
                 while (isActive) {
-                    if (!RunWindow.isOpen(this@MonitorService)) {
-                        // 时段结束：预约下次唤醒并停止服务（onDestroy 会取消所有循环）
-                        RunWindow.scheduleWake(this@MonitorService)
-                        Heartbeat.clear(this@MonitorService)
-                        stopSelf()
-                        break
-                    }
                     try {
                         task.runOnce(this@MonitorService)
                     } catch (e: Exception) {
                         Log.w("MonitorService", "module ${m.id} failed", e)
                     }
-                    Heartbeat.beat(this@MonitorService)
                     refreshNotification()
                     updateWakeLock()
-                    delay(task.nextDelayMs(this@MonitorService, System.currentTimeMillis()).coerceIn(5_000, 15 * 60_000))
+                    val now = System.currentTimeMillis()
+                    var wait = task.nextDelayMs(this@MonitorService, now).coerceIn(5_000, 30 * 60_000)
+                    // 时段外放慢刷新时，保证提醒时段一开始就醒来（汇总夜间提醒）
+                    if (!RunWindow.isOpen(this@MonitorService, now)) {
+                        val untilOpen = RunWindow.nextOpen(now, RunWindow.startMin(this@MonitorService), RunWindow.weekendOff(this@MonitorService)) - now + 5_000
+                        wait = minOf(wait, untilOpen.coerceAtLeast(5_000))
+                    }
+                    Heartbeat.beat(this@MonitorService, now + wait)
+                    delay(wait)
                 }
             }
         }
-    }
-
-    private fun shutDownUntilNextWindow() {
-        RunWindow.scheduleWake(this)
-        Heartbeat.clear(this)
-        jobs.values.forEach { it.cancel() }
-        jobs.clear()
-        stopSelf()
     }
 
     private fun refreshNotification() {
@@ -133,16 +123,12 @@ class MonitorService : Service() {
         var running = false
             private set
 
-        /** 根据模块开关和运行时段，启动或停止服务。可以安全地重复调用。 */
+        /** 根据模块开关启动或停止服务（全天运行）。可以安全地重复调用。 */
         fun sync(ctx: Context) {
             val any = ModuleRegistry.all.any { it.background?.isEnabled(ctx) == true }
             val i = Intent(ctx, MonitorService::class.java)
             if (!any) {
-                if (running) ctx.stopService(i)
-                return
-            }
-            if (!RunWindow.isOpen(ctx)) {
-                RunWindow.scheduleWake(ctx)
+                Heartbeat.clear(ctx)
                 if (running) ctx.stopService(i)
                 return
             }
@@ -156,25 +142,22 @@ class MonitorService : Service() {
     }
 }
 
-/** 心跳：服务每跑一轮记录一次时间，用于判断后台是否还活着，以及记录“被系统停止”的时长。 */
+/** 心跳：服务每跑一轮记录一次时间和“预计下次醒来时间”，用于判断后台是否还活着、记录“被系统停止”的时长。 */
 object Heartbeat {
-    fun beat(ctx: Context) = Store.global(ctx).edit().putLong("heartbeat", System.currentTimeMillis()).apply()
+    fun beat(ctx: Context, expectNextMs: Long) = Store.global(ctx).edit()
+        .putLong("heartbeat", System.currentTimeMillis()).putLong("hb_next", expectNextMs).apply()
     fun last(ctx: Context): Long = Store.global(ctx).getLong("heartbeat", 0L)
-    fun clear(ctx: Context) = Store.global(ctx).edit().putLong("heartbeat", 0L).apply()
+    fun expectedNext(ctx: Context): Long = Store.global(ctx).getLong("hb_next", 0L)
+    fun clear(ctx: Context) = Store.global(ctx).edit().putLong("heartbeat", 0L).putLong("hb_next", 0L).apply()
 
-    /** 服务重新启动时调用：如果同一天的运行时段内心跳中断超过 5 分钟，记一条系统记录。 */
+    /** 服务重新启动时调用：比预计醒来时间晚了 5 分钟以上，就记一条系统记录。 */
     fun checkGap(ctx: Context) {
-        val last = last(ctx)
-        if (last == 0L) return
-        val now = System.currentTimeMillis()
-        val gap = now - last
-        val sameDay = Calendar.getInstance(RunWindow.TZ).run {
-            timeInMillis = last; val d1 = get(Calendar.DAY_OF_YEAR)
-            timeInMillis = now; d1 == get(Calendar.DAY_OF_YEAR)
-        }
-        if (sameDay && gap > 5 * 60_000 && RunWindow.isOpen(ctx, last) && RunWindow.isOpen(ctx, now)) {
+        val expect = expectedNext(ctx)
+        if (expect == 0L) return
+        val late = System.currentTimeMillis() - expect
+        if (late > 5 * 60_000L) {
             AlertLog.add(
-                ctx, AlertEntry(now, AlertLog.SYSTEM, "后台曾被系统停止 ${gap / 60_000} 分钟", "已自动恢复。频繁出现请检查“我的 › 后台保活设置”。"),
+                ctx, AlertEntry(System.currentTimeMillis(), AlertLog.SYSTEM, "后台曾被系统停止约 ${late / 60_000} 分钟", "已自动恢复。频繁出现请检查“我的 › 后台保活设置”。"),
             )
         }
     }

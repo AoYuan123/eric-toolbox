@@ -51,6 +51,7 @@ fun HomeScreen(go: (Route) -> Unit) {
     val modules = remember(tick) { ModuleRegistry.visibleOrdered(ctx) }
     val runningCount = remember(tick) { ModuleRegistry.all.count { it.background?.isEnabled(ctx) == true } }
     val beat = remember(tick) { Heartbeat.last(ctx) }
+    val expectNext = remember(tick) { Heartbeat.expectedNext(ctx) }
 
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
@@ -58,7 +59,7 @@ fun HomeScreen(go: (Route) -> Unit) {
     ) {
         Text("Eric的百宝箱", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = C.Text)
 
-        HealthBar(runningCount, beat, onFix = { MonitorService.sync(ctx); go(Route.KeepAlive) })
+        HealthBar(runningCount, beat, expectNext, onFix = { MonitorService.sync(ctx); go(Route.KeepAlive) })
 
         for (cat in Category.entries) {
             val list = modules.filter { it.category == cat }
@@ -79,14 +80,15 @@ fun HomeScreen(go: (Route) -> Unit) {
 }
 
 @Composable
-private fun HealthBar(runningCount: Int, beatMs: Long, onFix: () -> Unit) {
+private fun HealthBar(runningCount: Int, beatMs: Long, expectNextMs: Long, onFix: () -> Unit) {
     val now = System.currentTimeMillis()
     val fmt = SimpleDateFormat("HH:mm", Locale.CHINA)
     val (text, fg, bg) = when {
         runningCount == 0 -> Triple("没有开启后台监控", C.Muted, C.Surface)
-        !RunWindow.isOpen(LocalContext.current) -> Triple("休息中 · ${RunWindow.describe(LocalContext.current)} 运行", C.Muted, C.Surface)
-        !MonitorService.running || now - beatMs > 3 * 60_000 ->
+        !MonitorService.running || beatMs == 0L || now - expectNextMs > 3 * 60_000 ->
             Triple("后台可能已被系统停止 · 点此修复", C.Warn, C.WarnBg)
+        !RunWindow.isOpen(LocalContext.current) ->
+            Triple("后台运行中 · 提醒时段外只更新数据（${RunWindow.describe(LocalContext.current)} 提醒）", C.Ok, C.OkBg)
         else -> Triple("后台运行正常 · $runningCount 个监控在跑", C.Ok, C.OkBg)
     }
     Row(

@@ -72,17 +72,6 @@ private val timeFmt = SimpleDateFormat("MM-dd HH:mm:ss", Locale.CHINA).apply { t
 private val hmFmt = SimpleDateFormat("HH:mm", Locale.CHINA).apply { timeZone = BJ }
 
 /** K 线缓存（10 分钟），避免每次切换都重新下载。 */
-private object KCache {
-    private val map = mutableMapOf<String, Pair<Long, List<Bar>>>()
-    suspend fun get(key: String, load: suspend () -> List<Bar>): List<Bar> {
-        val now = System.currentTimeMillis()
-        map[key]?.let { if (now - it.first < 10 * 60_000L) return it.second }
-        val v = load()
-        if (v.isNotEmpty()) map[key] = now to v
-        return v
-    }
-}
-
 @Composable
 private fun GoldMain(onBack: () -> Unit, onSettings: () -> Unit, onHold: (GoldPage) -> Unit) {
     val ctx = LocalContext.current
@@ -109,11 +98,15 @@ private fun GoldMain(onBack: () -> Unit, onSettings: () -> Unit, onHold: (GoldPa
 
     var chart by remember { mutableStateOf<ChartData?>(null) }
     var chartErr by remember { mutableStateOf<String?>(null) }
+    var srcNote by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(product, trend, if (trend == "h") tick / 4 else 0L, bankSeries.size) {
         chartErr = null
         chart = try {
-            buildChart(product, trend, snap, bankSeries, GoldModule.jcjPrev(ctx))
+            val (c, note) = buildChart(ctx, product, trend, snap, bankSeries, GoldModule.jcjPrev(ctx))
+            srcNote = note
+            c
         } catch (e: Exception) {
+            srcNote = null
             chartErr = "走势加载失败：${e.message ?: "网络错误"}"; null
         }
     }
@@ -139,6 +132,7 @@ private fun GoldMain(onBack: () -> Unit, onSettings: () -> Unit, onHold: (GoldPa
                 chartErr != null -> Text(chartErr!!, color = C.Warn, fontSize = 12.sp, modifier = Modifier.height(190.dp))
                 else -> Box(Modifier.fillMaxWidth().height(190.dp), contentAlignment = Alignment.Center) { Text("加载中…", color = C.Muted, fontSize = 12.sp) }
             }
+            srcNote?.let { Text(it, color = C.Warn, fontSize = 11.sp) }
             StatsRow(product, snap, ctx)
             Text(chartNote(product, trend) + " · 双指缩放，长按看价格，双击还原", color = C.Muted, fontSize = 11.sp)
         }
@@ -204,7 +198,7 @@ private fun GoldMain(onBack: () -> Unit, onSettings: () -> Unit, onHold: (GoldPa
         }
         if (status.error != null && status.lastOkMs != 0L) Text(status.error!!, color = C.Muted, fontSize = 11.sp, modifier = Modifier.padding(horizontal = 4.dp))
         if (!cfg.enabled) Text("后台监控已关闭，只有打开本页时才刷新。可在右上角设置里开启。", color = C.Warn, fontSize = 12.sp)
-        else if (!RunWindow.isOpen(ctx)) Text("当前不在运行时段（${RunWindow.describe(ctx)}），后台不监控、不提醒。", color = C.Muted, fontSize = 12.sp)
+        else if (!RunWindow.isOpen(ctx)) Text("当前在提醒时段外（${RunWindow.describe(ctx)} 提醒）：价格照常更新，跌破档位会在时段开始时汇总提醒。", color = C.Muted, fontSize = 12.sp)
         Box(Modifier.height(12.dp))
     }
 }
@@ -350,23 +344,32 @@ private fun chartNote(product: String, trend: String): String = when {
     else -> "K 线：大盘 Au99.99，元/克"
 }
 
-/** 根据品种和周期生成走势图数据。 */
+/** 走势数据来源说明：用了替代数据或旧数据时返回提示文字，正常时返回 null。 */
+private fun srcNoteOf(r: KlineRepo.Result): String? {
+    val parts = mutableListOf<String>()
+    if (r.src == KlineRepo.Src.SINA) parts += "大盘接口暂不可用，以下为替代数据：新浪沪金期货主连，与大盘价有差价"
+    if (r.stale) parts += "行情网站暂时连不上，显示的是手机上存的数据，截至 ${SimpleDateFormat("MM-dd HH:mm", Locale.CHINA).apply { timeZone = BJ }.format(Date(r.fetchedMs))}"
+    return parts.takeIf { it.isNotEmpty() }?.joinToString("；")
+}
+
+/** 根据品种和周期生成走势图数据，并附带数据来源提示。 */
 private suspend fun buildChart(
-    product: String, trend: String, snap: Snapshot?, bank: List<GoldModule.BankPoint>, jcjPrev: Double?,
-): ChartData {
+    ctx: android.content.Context, product: String, trend: String, snap: Snapshot?, bank: List<GoldModule.BankPoint>, jcjPrev: Double?,
+): Pair<ChartData, String?> {
     if (trend == "h") {
         if (product == "market") {
-            val bars = KCache.get("min-${System.currentTimeMillis() / 60_000}") { GoldSource.klines(1, 900) }
-            if (bars.isEmpty()) return ChartData.Line(emptyList(), emptyList(), null, "20:00" to "15:30")
+            val r = KlineRepo.get(ctx, KlineRepo.Kind.MIN)
+            val bars = r.bars
+            if (bars.isEmpty()) return ChartData.Line(emptyList(), emptyList(), null, "20:00" to "15:30") to srcNoteOf(r)
             val start = Session.marketDayStart(bars.last().timeMs)
             val day = bars.filter { it.timeMs >= start }
-            val cur = snap?.market?.price ?: day.last().close
-            val pts = day.mapNotNull { b ->
-                if (abs(b.close - cur) / cur > 0.05) return@mapNotNull null // 过滤异常成交
-                Session.marketAxisMinute(b.timeMs)?.let { (it / 780f) to b.close }
-            }
-            val tips = day.filter { abs(it.close - cur) / cur <= 0.05 && Session.marketAxisMinute(it.timeMs) != null }.map { hmFmt.format(Date(it.timeMs)) }
-            return ChartData.Line(pts, tips, snap?.market?.prevClose, "20:00 夜盘" to "次日 15:30")
+            // 替代数据（期货）与大盘有差价，不用大盘现价过滤，也不画大盘昨收线
+            val em = r.src == KlineRepo.Src.EM
+            val cur = (if (em) snap?.market?.price else null) ?: day.last().close
+            val keep = day.filter { abs(it.close - cur) / cur <= 0.05 && Session.marketAxisMinute(it.timeMs) != null }
+            val pts = keep.map { (Session.marketAxisMinute(it.timeMs)!! / 780f) to it.close }
+            val tips = keep.map { hmFmt.format(Date(it.timeMs)) }
+            return ChartData.Line(pts, tips, if (em) snap?.market?.prevClose else null, "20:00 夜盘" to "次日 15:30") to srcNoteOf(r)
         }
         val pts = bank.mapNotNull { p ->
             val v = if (product == "jcj") p.jcj else p.ryBuy
@@ -375,20 +378,23 @@ private suspend fun buildChart(
         }
         val tips = bank.filter { (if (product == "jcj") it.jcj else it.ryBuy) != null && Session.bankAxisMinute(it.t) != null }
             .map { hmFmt.format(Date(it.t)) }
-        return ChartData.Line(pts, tips, if (product == "jcj") jcjPrev else null, "09:10" to "22:30")
+        return ChartData.Line(pts, tips, if (product == "jcj") jcjPrev else null, "09:10" to "22:30") to null
     }
     return when (trend) {
         "d" -> {
-            val d = GoldSource.clean(KCache.get("d") { GoldSource.klines(101, 120) })
-            ChartData.Candles(d, (d.firstOrNull()?.label ?: "") to (d.lastOrNull()?.label ?: ""))
+            val r = KlineRepo.get(ctx, KlineRepo.Kind.DAY)
+            val d = GoldSource.clean(r.bars)
+            ChartData.Candles(d, (d.firstOrNull()?.label ?: "") to (d.lastOrNull()?.label ?: "")) to srcNoteOf(r)
         }
         "m" -> {
-            val m = GoldSource.clean(KCache.get("m") { GoldSource.klines(103, 240) }).takeLast(36).map { it.copy(label = it.label.take(7)) }
-            ChartData.Candles(m, (m.firstOrNull()?.label ?: "") to (m.lastOrNull()?.label ?: ""))
+            val r = KlineRepo.get(ctx, KlineRepo.Kind.MONTH)
+            val m = GoldSource.clean(r.bars).takeLast(36).map { it.copy(label = it.label.take(7)) }
+            ChartData.Candles(m, (m.firstOrNull()?.label ?: "") to (m.lastOrNull()?.label ?: "")) to srcNoteOf(r)
         }
         else -> {
-            val y = GoldSource.yearly(GoldSource.clean(KCache.get("m") { GoldSource.klines(103, 240) }))
-            ChartData.Candles(y, (y.firstOrNull()?.label ?: "") to (y.lastOrNull()?.label ?: ""))
+            val r = KlineRepo.get(ctx, KlineRepo.Kind.MONTH)
+            val y = GoldSource.yearly(GoldSource.clean(r.bars))
+            ChartData.Candles(y, (y.firstOrNull()?.label ?: "") to (y.lastOrNull()?.label ?: "")) to srcNoteOf(r)
         }
     }
 }

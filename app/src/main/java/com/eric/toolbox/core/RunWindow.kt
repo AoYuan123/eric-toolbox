@@ -10,8 +10,8 @@ import java.util.Calendar
 import java.util.TimeZone
 
 /**
- * 全局运行时段：默认周一至周五 8:00–23:00。
- * 时段外后台服务完全停止；到点由精确闹钟唤醒。
+ * 提醒时段：默认周一至周五 8:00–23:00。数据全天更新，只有提醒受这个时段限制。
+ * 时段开始时由精确闹钟唤醒一次（保险：确保后台在、能及时汇总夜间提醒）。
  * 一律按北京时间计算，不受手机时区影响。
  */
 object RunWindow {
@@ -77,7 +77,7 @@ object RunWindow {
         Build.VERSION.SDK_INT < 31 || ctx.getSystemService(AlarmManager::class.java).canScheduleExactAlarms()
 }
 
-/** 时段开始时被闹钟唤醒，拉起后台服务。 */
+/** 提醒时段开始时被闹钟唤醒，拉起后台服务。 */
 class WakeReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         MonitorService.sync(context)

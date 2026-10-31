@@ -305,7 +305,7 @@ fun GoldSettingsScreen(onBack: () -> Unit) {
 
             SectionLabel("监控与刷新")
             ListCard {
-                RowItem("运行时段", RunWindow.describe(ctx), sub = "在“我的 › 运行时段”里修改")
+                RowItem("提醒时段", RunWindow.describe(ctx), sub = "数据全天更新，只在这个时段提醒；在“我的 › 提醒时段”里修改")
                 ToggleRow("后台监控", "关闭后不再提醒", enabled) { enabled = it }
                 ToggleRow("智能刷新间隔", "离档位越近刷新越快：>8 元每 3 分钟，3–8 元每 60 秒，3 元内按下面设置", smart) { smart = it }
                 Row(Modifier.fillMaxWidth().heightIn(min = 50.dp), verticalAlignment = Alignment.CenterVertically) {

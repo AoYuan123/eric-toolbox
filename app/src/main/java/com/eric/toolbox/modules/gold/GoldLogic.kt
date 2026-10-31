@@ -193,3 +193,24 @@ object LedgerMath {
         return Holding(grams, cost, realized)
     }
 }
+
+/**
+ * 提醒时段外（如 23:00 之后的夜盘）的价格记录：只记最低、最高和最后价，不提醒；
+ * 回到提醒时段后汇总提醒一次。
+ */
+object NightLogic {
+    data class Night(val low: Double, val lowT: Long, val high: Double, val highT: Long, val last: Double, val lastT: Long, val label: String)
+
+    fun merge(n: Night?, low: Double, high: Double, last: Double, t: Long, label: String): Night = when {
+        n == null -> Night(low, t, high, t, last, t, label)
+        else -> Night(
+            low = minOf(n.low, low), lowT = if (low < n.low) t else n.lowT,
+            high = maxOf(n.high, high), highT = if (high > n.high) t else n.highT,
+            last = last, lastT = t, label = if (low < n.low) label else n.label,
+        )
+    }
+
+    /** 一次跨过的各档位，从高到低，如 alertTier=830、crossed=2、step=10 → [840, 830]。 */
+    fun tiers(alertTier: Int, crossed: Int, step: Int): List<Int> =
+        (crossed - 1 downTo 0).map { alertTier + step * it }
+}

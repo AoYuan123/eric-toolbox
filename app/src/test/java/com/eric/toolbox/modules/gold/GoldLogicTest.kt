@@ -245,3 +245,52 @@ class ParserTest {
         assertFalse(stale.marketFresh()); assertFalse(stale.bankFresh())
     }
 }
+
+class NightAndKlineTest {
+    @Test fun nightMergeKeepsLowHighAndLast() {
+        var n = NightLogic.merge(null, 838.0, 839.0, 838.5, 1L, "大盘")
+        n = NightLogic.merge(n, 826.0, 830.0, 829.0, 2L, "大盘")
+        n = NightLogic.merge(n, 828.0, 832.0, 829.5, 3L, "大盘")
+        assertEquals(826.0, n.low, 1e-9); assertEquals(2L, n.lowT)
+        assertEquals(839.0, n.high, 1e-9); assertEquals(1L, n.highT)
+        assertEquals(829.5, n.last, 1e-9); assertEquals(3L, n.lastT)
+    }
+
+    @Test fun nightSummaryTiers() {
+        // 已提醒到 850，夜间最低 826、现价 829：一次跨过 840、830 两档
+        val d = TierLogic.evaluate(826.0, 850, 850, 10, current = 829.0)
+        assertEquals(830, d.alertTier); assertEquals(2, d.crossed)
+        assertEquals(listOf(840, 830), NightLogic.tiers(d.alertTier!!, d.crossed, 10))
+        assertEquals(listOf(850), NightLogic.tiers(850, 1, 10))
+    }
+
+    // 格式与 10-31 实测新浪沪金主连一致。10-31 02:30、10-29、10-30 和 11-02 00:00（接口里真实出现的未来时间异常条目）是实测值，其余两条为构造数据
+    private val sinaMin = """var _k=([{"d":"2026-10-31 02:29:00","o":"831.500","h":"831.700","l":"831.300","c":"831.480","p":"181480","v":"20"},{"d":"2026-10-31 02:30:00","o":"831.480","h":"831.900","l":"831.380","c":"831.620","p":"181476","v":"18"},{"d":"2026-11-02 00:00:00","o":"836.780","h":"836.900","l":"836.580","c":"836.620","p":"181301","v":"69"}]);"""
+    private val sinaDay = """var _k=([{"d":"2026-09-30","o":"880.000","h":"881.000","l":"870.000","c":"875.000","p":"1","s":"0","v":"1"},{"d":"2026-10-29","o":"871.720","h":"875.160","l":"864.460","c":"867.260","p":"185349","s":"869.540","v":"184566"},{"d":"2026-10-30","o":"864.580","h":"867.960","l":"854.720","c":"855.180","p":"184420","s":"861.900","v":"237318"}]);"""
+
+    @Test fun parseSinaMinuteDropsFutureBars() {
+        val bars = KlineRepo.parseSina(sinaMin, minute = true, now = at(2026, 10, 31, 20, 20))
+        assertEquals(2, bars.size)
+        assertEquals("2026-10-31 02:30", bars[1].label)
+        assertEquals(at(2026, 10, 31, 2, 30), bars[1].timeMs)
+        assertEquals(831.62, bars[1].close, 1e-9)
+    }
+
+    @Test fun parseSinaDailyAndMonthly() {
+        val d = KlineRepo.parseSina(sinaDay, minute = false, now = at(2026, 10, 31, 20, 20))
+        assertEquals(3, d.size); assertEquals(855.18, d.last().close, 1e-9)
+        val m = KlineRepo.monthly(d)
+        assertEquals(listOf("2026-09", "2026-10"), m.map { it.label })
+        val oct = m[1]
+        assertEquals(871.72, oct.open, 1e-9); assertEquals(855.18, oct.close, 1e-9)
+        assertEquals(875.16, oct.high, 1e-9); assertEquals(854.72, oct.low, 1e-9)
+    }
+
+    @Test fun mergeBarsOverwritesSameMinute() {
+        val a = listOf(Bar("a", 1, 1.0, 1.0, 1.0, 1.0), Bar("b", 2, 2.0, 2.0, 2.0, 2.0))
+        val b = listOf(Bar("b", 2, 2.0, 2.5, 2.5, 2.0), Bar("c", 3, 3.0, 3.0, 3.0, 3.0))
+        val m = KlineRepo.mergeBars(a, b, 10)
+        assertEquals(listOf(1L, 2L, 3L), m.map { it.timeMs }); assertEquals(2.5, m[1].close, 1e-9)
+        assertEquals(2, KlineRepo.mergeBars(a, b, 2).size)
+    }
+}
