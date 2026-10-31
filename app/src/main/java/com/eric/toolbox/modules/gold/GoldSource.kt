@@ -33,7 +33,7 @@ data class BankQuote(
 )
 
 data class Snapshot(
-    val market: Quote?,       // 大盘 上海金 Au99.99（东方财富）
+    val market: Quote?,       // 大盘 上海金 Au99.99（东方财富；连不上时用上金所官网延时行情）
     val td: Quote?,           // 黄金 T+D（东方财富）
     val futures: Quote?,      // 沪金连续（新浪）
     val bank: BankQuote?,
@@ -68,6 +68,8 @@ data class Bar(val label: String, val timeMs: Long, val open: Double, val close:
  * - 校验：同接口黄金 T+D（118.AUTD，容差 1.5%）；新浪沪金连续 nf_AU0（容差 3%）
  * - 工行：官网积存金行情页（积存金、如意金积存），每 3 秒更新，9:10–22:30
  * - 走势：东方财富 push2his K 线接口（分钟 / 日 / 月）
+ * - 备用（10-31 实测）：上海黄金交易所官网延时行情 /graph/quotations（当日分钟价）、/graph/Dailyhq（2016-12 起日线），
+ *   都是 Au99.99 本身；东方财富连不上时用来显示大盘价和走势。
  * 这些是网站公开使用的接口，并非官方开放 API，改版后需要更新这里。
  */
 object GoldSource {
@@ -75,6 +77,9 @@ object GoldSource {
         "https://push2.eastmoney.com/api/qt/ulist.np/get?secids=118.AU9999,118.AUTD&fields=f1,f2,f12,f15,f16,f17,f18,f124"
     private const val SINA_URL = "https://hq.sinajs.cn/list=nf_AU0"
     private const val ICBC_URL = "https://mybank.icbc.com.cn/icbc/newperbank/perbank3/gold/goldaccrual_query_out.jsp"
+    const val SGE_QUOTE = "https://www.sge.com.cn/graph/quotations"
+    const val SGE_DAILY = "https://www.sge.com.cn/graph/Dailyhq"
+    val SGE_HDR = mapOf("Referer" to "https://www.sge.com.cn/sjzx/yshqbg", "X-Requested-With" to "XMLHttpRequest")
     private const val KLINE = "https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=118.AU9999&fields1=f1&fields2=f51,f52,f53,f54,f55&fqt=0&end=20500101"
 
     const val TOL_TD = 0.015
@@ -93,12 +98,20 @@ object GoldSource {
         val icbc = async { runCatching { parseIcbc(Http.get(ICBC_URL, charset = GBK)) } }
         val emR = em.await(); val sinaR = sina.await(); val icbcR = icbc.await()
         val emQ = emR.getOrNull().orEmpty()
+        var market = emQ.firstOrNull { it.code == "AU9999" }
+        var sgeErr: Throwable? = null
+        if (market == null) {
+            // 东方财富连不上：改用上金所官网延时行情（同样是 Au99.99）
+            market = runCatching { sgeQuote(nowMs) }.onFailure { sgeErr = it }.getOrNull()
+        }
         val errors = buildList {
             emR.exceptionOrNull()?.let { add("东方财富：${it.message ?: "网络错误"}") }
+            if (market?.source == SGE_NAME) add("大盘价暂用上金所官网延时行情")
+            sgeErr?.let { add("上金所：${it.message ?: "网络错误"}") }
             icbcR.exceptionOrNull()?.let { add("工商银行：${it.message ?: "网络错误"}") }
         }
         Snapshot(
-            market = emQ.firstOrNull { it.code == "AU9999" },
+            market = market,
             td = emQ.firstOrNull { it.code == "AUTD" },
             futures = sinaR.getOrNull(),
             bank = icbcR.getOrNull(),
@@ -160,6 +173,77 @@ object GoldSource {
     }
 
     private fun fmt(p: String) = SimpleDateFormat(p, Locale.CHINA).apply { timeZone = BJ }
+
+    const val SGE_NAME = "上金所延时"
+
+    suspend fun sgeQuote(nowMs: Long): Quote? =
+        parseSgeQuotations(Http.postForm(SGE_QUOTE, "instid=Au99.99", SGE_HDR), nowMs).first
+
+    suspend fun sgeMinutes(nowMs: Long): List<Bar> =
+        parseSgeQuotations(Http.postForm(SGE_QUOTE, "instid=Au99.99", SGE_HDR), nowMs).second
+
+    suspend fun sgeDaily(): List<Bar> = parseSgeDaily(Http.postForm(SGE_DAILY, "instid=Au99.99", SGE_HDR))
+
+    /**
+     * 上金所延时行情：{"times":["20:00",…,"15:30"],"data":["854.76",…],"delaystr":"2026年11月02日 02:29:58",…}
+     * times/data 覆盖整个交易日（夜盘 20:00 起到次日 15:30），**尚未发生的分钟也会被填上一个值**，
+     * 所以只取到 delaystr 的时刻为止。delaystr 里的日期是“交易日”（周五夜盘记作下周一），不是自然日，
+     * 因此只用其中的时分秒，自然日按“不晚于现在的最近一次该时刻”推算。
+     * @return 最新报价（时间为数据实际时刻）和当日有效的分钟价
+     */
+    fun parseSgeQuotations(body: String, nowMs: Long): Pair<Quote?, List<Bar>> {
+        val o = JSONObject(body)
+        val times = o.optJSONArray("times") ?: return null to emptyList()
+        val data = o.optJSONArray("data") ?: return null to emptyList()
+        val clock = Regex("""(\d{1,2}):(\d{2}):(\d{2})""").find(o.optString("delaystr")) ?: return null to emptyList()
+        val (hh, mm, ss) = clock.destructured
+        val c = java.util.Calendar.getInstance(BJ).apply {
+            timeInMillis = nowMs
+            set(java.util.Calendar.HOUR_OF_DAY, hh.toInt()); set(java.util.Calendar.MINUTE, mm.toInt())
+            set(java.util.Calendar.SECOND, ss.toInt()); set(java.util.Calendar.MILLISECOND, 0)
+            if (timeInMillis > nowMs + 60_000L) add(java.util.Calendar.DAY_OF_MONTH, -1)
+        }
+        val lastMs = c.timeInMillis
+        val lastHm = String.format(Locale.US, "%02d:%02d", hh.toInt(), mm.toInt())
+        // 从 lastMs 往前按分钟倒推每个时刻的自然时间（跨夜盘时日期会正确回退）
+        val n = minOf(times.length(), data.length())
+        var endIdx = -1
+        for (i in 0 until n) if (times.optString(i) == lastHm) endIdx = i
+        if (endIdx < 0) return null to emptyList()
+        val bars = ArrayList<Bar>()
+        val minuteOf = { hm: String -> hm.substringBefore(':').toInt() * 60 + hm.substringAfter(':').toInt() }
+        val lastMin = minuteOf(lastHm)
+        val lastMinuteStart = lastMs - ss.toInt() * 1000L
+        for (i in 0..endIdx) {
+            val hm = times.optString(i)
+            val v = data.optString(i).toDoubleOrNull() ?: continue
+            if (v <= 0) continue
+            var diff = lastMin - minuteOf(hm)
+            if (diff < 0) diff += 24 * 60
+            val t = lastMinuteStart - diff * 60_000L
+            bars += Bar(hm, t, v, v, v, v)
+        }
+        if (bars.isEmpty()) return null to emptyList()
+        val q = Quote(SGE_NAME, "AU9999", bars.last().close, bars.maxOf { it.high }, bars.minOf { it.low }, null, bars.first().open, lastMs)
+        return q to bars
+    }
+
+    /** 上金所日线：{"time":[["2026-10-30",开,收,低,高],…]}（字段顺序已用 10-30 数据核对：开 863.8 收 854.76 低 853.5 高 867）。 */
+    fun parseSgeDaily(body: String): List<Bar> {
+        val arr = JSONObject(body).optJSONArray("time") ?: return emptyList()
+        val f = fmt("yyyy-MM-dd")
+        val out = ArrayList<Bar>(arr.length())
+        for (i in 0 until arr.length()) {
+            val a = arr.optJSONArray(i) ?: continue
+            if (a.length() < 5) continue
+            val d = a.optString(0)
+            val t = runCatching { f.parse(d)?.time }.getOrNull() ?: continue
+            val o = a.optDouble(1); val c = a.optDouble(2); val l = a.optDouble(3); val h = a.optDouble(4)
+            if (listOf(o, c, l, h).any { it.isNaN() || it <= 0 }) continue
+            out += Bar(d, t, o, c, h, l)
+        }
+        return out.sortedBy { it.timeMs }
+    }
 
     /** K 线。klt：1=分钟，101=日，103=月。 */
     suspend fun klines(klt: Int, limit: Int): List<Bar> = parseKlines(Http.get("$KLINE&klt=$klt&lmt=$limit"), klt == 1)

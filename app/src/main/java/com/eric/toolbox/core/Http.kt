@@ -15,6 +15,19 @@ object Http {
         headers: Map<String, String> = emptyMap(),
         charset: Charset = Charsets.UTF_8,
         timeoutMs: Int = 8000,
+    ): String = request(url, headers, charset, timeoutMs, null)
+
+    /** 表单 POST（application/x-www-form-urlencoded）。 */
+    suspend fun postForm(
+        url: String,
+        form: String,
+        headers: Map<String, String> = emptyMap(),
+        charset: Charset = Charsets.UTF_8,
+        timeoutMs: Int = 8000,
+    ): String = request(url, headers, charset, timeoutMs, form)
+
+    private suspend fun request(
+        url: String, headers: Map<String, String>, charset: Charset, timeoutMs: Int, form: String?,
     ): String = withContext(Dispatchers.IO) {
         require(url.startsWith("https://")) { "只允许 https 请求" }
         val conn = URL(url).openConnection() as HttpURLConnection
@@ -24,6 +37,12 @@ object Http {
             conn.instanceFollowRedirects = false
             conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android) EricToolbox")
             headers.forEach { (k, v) -> conn.setRequestProperty(k, v) }
+            if (form != null) {
+                conn.requestMethod = "POST"
+                conn.doOutput = true
+                conn.setRequestProperty("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
+                conn.outputStream.use { it.write(form.toByteArray(Charsets.UTF_8)) }
+            }
             val code = conn.responseCode
             if (code !in 200..299) throw java.io.IOException("HTTP $code")
             val bytes = conn.inputStream.use { input ->

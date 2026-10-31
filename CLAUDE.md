@@ -15,7 +15,10 @@
 1. `add_repo`（owner `AoYuan123`，repo `eric-toolbox`，access `push`），按返回提示 clone 到 `/home/claude/eric-toolbox`。
    - 推送权限来自用户已安装的 Claude GitHub App（只授权了这个仓库）。若提示没有推送权限，让用户到 claude.ai 设置 › 连接器 重新连接 GitHub。
 2. 提交信息末尾带会话要求的 Co-Authored-By 等署名行。只改文档时在提交信息里加 `[skip ci]`，避免发一个内容相同的新版本。
-3. 本地容器**不能编译**（Google Maven / Gradle 被网络白名单拦截），只能推送后看 Actions 结果。
+3. 本地容器**不能编译 Android**（Google Maven / Gradle 被网络白名单拦截），只能推送后看 Actions 结果。
+   纯逻辑可以本地验证：从 GitHub 下载 kotlinc（`github.com/JetBrains/kotlin/releases/download/v2.0.21/kotlin-compiler-2.0.21.zip`），
+   org.json 用 `github.com/stleary/JSON-java` 源码 javac 编译，再自己写 JUnit/协程/Context 的极简桩代码跑单元测试（10/31 这样跑过 45 个测试）。
+   看 CI 结果也可以直接在容器里用 `gh run list -R AoYuan123/eric-toolbox -L 1`；下载 Release 用 `gh api …/releases/latest`（gh 的 GraphQL 命令不可用）。
 4. 看编译结果：用户电脑上的内置浏览器（Claude 桌面 App）已允许 github.com，可在页面里用 JS 调
    `https://api.github.com/repos/AoYuan123/eric-toolbox/actions/runs?per_page=1` 查状态；
    失败日志在 run 的 job 页面（`<run html_url>/job/<job id>`），用 `document.body.innerText` 找 `e: ` 开头的行。
@@ -47,6 +50,14 @@ app/src/main/java/com/eric/toolbox/
 │   ├── Theme.kt           配色 C（可切主题：曜石黑/象牙白/墨绿/跟随系统；红涨绿跌可切）+ 通用组件
 │   ├── HomeScreen.kt      首页（运行状态条 + 模块卡片，分“监控类/工具类”）
 │   └── GlobalScreens.kt   我的、记录、后台保活引导、整理首页、备份恢复
+├── modules/datecalc/      日期计算（工具类，纯本地）
+│   ├── CalendarData.kt    生成的数据：holiday-cn 2007–2026 节假日/调休 + ICU 农历表 1901–2100（勿手改）
+│   ├── DateLogic.kt       工作日、农历、日期间隔/推算（java.time，可单测）
+│   └── DateCalcModule.kt  界面
+├── modules/trials/        临床试验监控（ClinicalTrials.gov API v2）
+│   ├── TrialLogic.kt      检索 URL、解析、变化对比、存储格式（可单测）
+│   ├── TrialModule.kt     关注条件/快照/变化记录存储、每天 9:00 与 18:00 检查、失败 15 分钟重试、时段外延后推送
+│   └── TrialScreens.kt    主页、关注详情（长按排除）、试验详情、添加/编辑关注（先预览再保存）
 └── modules/gold/          实时金价模块
     ├── GoldLogic.kt       纯逻辑（可单测）：档位、上涨提醒、智能间隔、交易时段、持仓移动加权成本
     ├── GoldSource.kt      行情源与解析（东方财富、新浪、工行 HTML、K 线）+ 异常值过滤
@@ -55,7 +66,7 @@ app/src/main/java/com/eric/toolbox/
     ├── GoldChart.kt       走势图（纵坐标、缩放、长按十字线）
     ├── GoldScreen.kt      实时金价主页（大盘/积存金/如意金切换、多源比对、走势、入口）
     └── GoldPages.kt       我的积存金/如意金积存（交易明细）、金价设置（含档位）
-app/src/test/.../GoldLogicTest.kt   单元测试（含 10/30 实测数据）
+app/src/test/.../GoldLogicTest.kt、DateLogicTest.kt、TrialLogicTest.kt   单元测试（含实测数据）
 ```
 
 ### 新增一个模块
@@ -75,7 +86,14 @@ app/src/test/.../GoldLogicTest.kt   单元测试（含 10/30 实测数据）
 - 工行无公开历史：积存金/如意金分时、昨收、今开由 App 自己记录；日/月/年 K 显示大盘。
 - 历史 K 线里 1000+、1256 是真实价格（2026 年初金价确实过千），只过滤偏离开收盘 ±10% 的异常影线（如 2016-03 最低 181.2）。
 
-## 6. 数据源（2026-10-30 实测）
+## 6. 数据源（2026-10-30/31 实测）
+- 10/31 晚，用户网络下东方财富**全部接口**（含实时 push2）都连不上了，疑似被封 IP（App 请求过频 + 测试）。已加上金所官网备用：
+  - 上金所延时行情 `POST https://www.sge.com.cn/graph/quotations`，表单 `instid=Au99.99` → `{"times":[...],"data":[...],"delaystr":"2026年11月02日 02:29:58"}`。
+    times/data 覆盖整个交易日，**未发生的分钟也被填了值**，只取到 delaystr 时刻；delaystr 的日期是交易日（周五夜盘记作下周一），只用时分秒。延时多久尚未在交易时段实测。
+  - 上金所日线 `POST https://www.sge.com.cn/graph/Dailyhq`，`instid=Au99.99` → `{"time":[["2026-10-30",开,收,低,高],...]}`（2016-12-19 起）。
+  - 顺序：大盘价 东方财富 → 上金所；走势 东方财富 → 上金所 → 新浪沪金主连 → 手机缓存。
+- ClinicalTrials.gov API v2：`https://clinicaltrials.gov/api/v2/studies`（CORS 允许，内置浏览器需用户允许站点）。query.intr/cond/spons/locn、filter.ids、filter.overallStatus（逗号分隔）、aggFilters=phase:2 3、sort=LastUpdatePostDate:desc、pageSize≤1000。关键词加引号=完整短语（“Lutetium Lu 177”+China：加引号 6 项，不加 21 项）。
+- 节假日：NateScarlet/holiday-cn，2027.json 截至 10/31 为空（国务院未公布）。公布后重新生成 CalendarData.kt（脚本思路：按日期所属年份汇总所有 json，跨年调休日别漏）。
 - 东方财富实时：`https://push2.eastmoney.com/api/qt/ulist.np/get?secids=118.AU9999,118.AUTD&fields=f1,f2,f12,f15,f16,f17,f18,f124`（价格 ÷10^f1，f124 秒级时间戳）
 - 东方财富 K 线：`https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=118.AU9999&fields1=f1&fields2=f51,f52,f53,f54,f55&klt=1|101|103&fqt=0&end=20500101&lmt=N`
 - 10/31 起东方财富 K 线路径（push2his …/kline/get、trends2）在用户网络下连接被断开（实时接口正常），疑似限流，原因未最终确认。走势改为：东方财富失败后 10 分钟内不再请求，改用新浪：
@@ -90,4 +108,5 @@ app/src/test/.../GoldLogicTest.kt   单元测试（含 10/30 实测数据）
   2. 国内云存储（阿里云/腾讯云），更稳但要开通账号、少量费用、可能涉及域名备案。
   3. 维持现状：电脑开 VPN 下载后传到手机。
 - 语言目前只有简体中文。
+- 临床试验标题显示 ClinicalTrials.gov 英文原文（预览里的中文标题是我概括的，App 不做翻译）。
 - 真机上的显示效果、后台保活时长、手势体验都还没有用户反馈。

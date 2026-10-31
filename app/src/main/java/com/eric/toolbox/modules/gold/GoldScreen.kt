@@ -99,15 +99,26 @@ private fun GoldMain(onBack: () -> Unit, onSettings: () -> Unit, onHold: (GoldPa
     var chart by remember { mutableStateOf<ChartData?>(null) }
     var chartErr by remember { mutableStateOf<String?>(null) }
     var srcNote by remember { mutableStateOf<String?>(null) }
+    var chartKey by remember { mutableStateOf("") }
     LaunchedEffect(product, trend, if (trend == "h") tick / 4 else 0L, bankSeries.size) {
-        chartErr = null
-        chart = try {
-            val (c, note) = buildChart(ctx, product, trend, snap, bankSeries, GoldModule.jcjPrev(ctx))
-            srcNote = note
-            c
-        } catch (e: Exception) {
-            srcNote = null
-            chartErr = "走势加载失败：${e.message ?: "网络错误"}"; null
+        // 换了品种或周期：先清掉旧图，避免显示错周期的数据
+        if (chartKey != "$product-$trend") { chart = null; chartErr = null; srcNote = null; chartKey = "$product-$trend" }
+        // 失败后自动重试（15 秒、30 秒、60 秒……最长 5 分钟一次），不会一直停在报错界面
+        var wait = 15_000L
+        while (true) {
+            val ok = try {
+                val (c, note) = buildChart(ctx, product, trend, snap, bankSeries, GoldModule.jcjPrev(ctx))
+                chart = c; srcNote = note; chartErr = null
+                note?.contains(STALE_MARK) != true // 显示的是手机上的旧数据时，继续在后台重试
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                if (chart == null) chartErr = "走势加载失败：${e.message ?: "网络错误"}（${wait / 1000} 秒后自动重试）"
+                false
+            }
+            if (ok) break
+            delay(wait)
+            wait = (wait * 2).coerceAtMost(5 * 60_000L)
         }
     }
 
@@ -344,11 +355,14 @@ private fun chartNote(product: String, trend: String): String = when {
     else -> "K 线：大盘 Au99.99，元/克"
 }
 
+private const val STALE_MARK = "显示的是手机上存的数据"
+
 /** 走势数据来源说明：用了替代数据或旧数据时返回提示文字，正常时返回 null。 */
 private fun srcNoteOf(r: KlineRepo.Result): String? {
     val parts = mutableListOf<String>()
+    if (r.src == KlineRepo.Src.SGE) parts += "东方财富暂不可用，走势来自上海黄金交易所官网延时行情（同为 Au99.99）"
     if (r.src == KlineRepo.Src.SINA) parts += "大盘接口暂不可用，以下为替代数据：新浪沪金期货主连，与大盘价有差价"
-    if (r.stale) parts += "行情网站暂时连不上，显示的是手机上存的数据，截至 ${SimpleDateFormat("MM-dd HH:mm", Locale.CHINA).apply { timeZone = BJ }.format(Date(r.fetchedMs))}"
+    if (r.stale) parts += "行情网站暂时连不上，$STALE_MARK，截至 ${SimpleDateFormat("MM-dd HH:mm", Locale.CHINA).apply { timeZone = BJ }.format(Date(r.fetchedMs))}"
     return parts.takeIf { it.isNotEmpty() }?.joinToString("；")
 }
 
@@ -364,7 +378,7 @@ private suspend fun buildChart(
             val start = Session.marketDayStart(bars.last().timeMs)
             val day = bars.filter { it.timeMs >= start }
             // 替代数据（期货）与大盘有差价，不用大盘现价过滤，也不画大盘昨收线
-            val em = r.src == KlineRepo.Src.EM
+            val em = r.src != KlineRepo.Src.SINA // 东方财富、上金所都是 Au99.99 本身
             val cur = (if (em) snap?.market?.price else null) ?: day.last().close
             val keep = day.filter { abs(it.close - cur) / cur <= 0.05 && Session.marketAxisMinute(it.timeMs) != null }
             val pts = keep.map { (Session.marketAxisMinute(it.timeMs)!! / 780f) to it.close }

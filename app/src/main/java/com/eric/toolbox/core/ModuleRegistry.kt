@@ -1,7 +1,9 @@
 package com.eric.toolbox.core
 
 import android.content.Context
+import com.eric.toolbox.modules.datecalc.DateCalcModule
 import com.eric.toolbox.modules.gold.GoldModule
+import com.eric.toolbox.modules.trials.TrialModule
 
 /**
  * 模块登记表。新增模块只需要在 all 里加一行。
@@ -9,9 +11,9 @@ import com.eric.toolbox.modules.gold.GoldModule
 object ModuleRegistry {
     val all: List<ToolModule> = listOf(
         GoldModule,
-        // 以后的新模块加在这里，例如：
-        // SilverModule,
-        // WebWatchModule,
+        TrialModule,
+        DateCalcModule,
+        // 以后的新模块加在这里
     )
 
     fun byId(id: String): ToolModule? = all.firstOrNull { it.id == id }

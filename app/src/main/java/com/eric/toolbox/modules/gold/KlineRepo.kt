@@ -10,14 +10,16 @@ import java.util.Locale
 
 /**
  * 走势数据仓库：
- * 1. 优先东方财富（大盘 Au99.99）；2. 东方财富连不上时用新浪沪金期货主连代替（价格有差价，界面会标注）；
- * 3. 都失败时显示上次存在手机上的数据，并注明截至时间。
+ * 1. 优先东方财富（大盘 Au99.99）；
+ * 2. 连不上时用上金所官网延时行情（也是 Au99.99：当日分钟价、2016-12 起的日线）；
+ * 3. 再不行用新浪沪金期货主连（价格有差价，界面会标注）；
+ * 4. 都失败时显示上次存在手机上的数据，并注明截至时间。
  *
  * 为避免被行情网站限流：分钟线只增量拉取，日/月线 10 分钟内不重复请求；
  * 东方财富失败后 10 分钟内不再尝试，直接走新浪。
  */
 object KlineRepo {
-    enum class Src { EM, SINA }
+    enum class Src { EM, SGE, SINA }
     enum class Kind(val key: String) { MIN("min"), DAY("day"), MONTH("month") }
 
     data class Result(val bars: List<Bar>, val src: Src, val fetchedMs: Long, val stale: Boolean, val error: String?)
@@ -49,6 +51,15 @@ object KlineRepo {
                 emBlockedUntil = now + 10 * 60_000L
             }
         } else emErr = "东方财富暂不可用"
+        try {
+            val bars = when (kind) {
+                Kind.MIN -> GoldSource.sgeMinutes(now)
+                Kind.DAY -> GoldSource.sgeDaily().takeLast(120)
+                Kind.MONTH -> monthly(GoldSource.sgeDaily()).takeLast(240)
+            }
+            if (bars.isNotEmpty()) return save(ctx, kind, Result(bars, Src.SGE, now, false, emErr))
+        } catch (_: Exception) {
+        }
         try {
             val bars = sina(kind, now)
             if (bars.isNotEmpty()) return save(ctx, kind, Result(bars, Src.SINA, now, false, emErr))

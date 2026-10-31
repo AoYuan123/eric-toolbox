@@ -141,6 +141,7 @@ object GoldModule : ToolModule {
         if (lastEval == 0L || now - lastEval > 60 * 60_000L) return cur
         val minutes = ((now - lastEval) / 60_000L + 2).toInt().coerceIn(2, 60)
         val bars = KlineRepo.emMinutes(minutes, now)
+            .ifEmpty { runCatching { GoldSource.sgeMinutes(now) }.getOrDefault(emptyList()) } // 东方财富不可用时用上金所分钟价
         val closes = bars.filter { it.timeMs >= lastEval - 60_000L }.map { it.close }
         // 分钟收盘价若与当前价偏离超过 3%，视为异常数据不采用
         val sane = closes.filter { abs(it - cur) / cur <= 0.03 }

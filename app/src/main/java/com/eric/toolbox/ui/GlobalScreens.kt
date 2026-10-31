@@ -237,7 +237,7 @@ fun RecordsScreen() {
     val fmtDay = remember { SimpleDateFormat("M月d日", Locale.CHINA) }
     val fmtTime = remember { SimpleDateFormat("HH:mm", Locale.CHINA) }
     val list = all.filter { filter == "all" || it.moduleId == filter }
-    val chips = listOf("all" to "全部") + ModuleRegistry.all.map { it.id to it.name } + (AlertLog.SYSTEM to "系统")
+    val chips = listOf("all" to "全部") + ModuleRegistry.all.filter { it.background != null }.map { it.id to it.name } + (AlertLog.SYSTEM to "系统")
 
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Text("记录", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = C.Text)

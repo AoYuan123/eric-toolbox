@@ -294,3 +294,27 @@ class NightAndKlineTest {
         assertEquals(2, KlineRepo.mergeBars(a, b, 2).size)
     }
 }
+
+class SgeTest {
+    // 格式与 10-31 实测上金所 /graph/quotations 一致（节选并构造）：尚未发生的分钟被填了值，日期是“交易日”不是自然日
+    private val q = """{"times":["20:00","20:01","20:02","02:29","02:30","09:00","15:30"],"min":833,"data":["854.76","853.0","852.5","833.2","833.0","831.0","831.0"],"max":854,"heyue":"Au99.99","now":"20:44","delaystr":"2026年11月02日 02:29:58"}"""
+
+    @Test fun quotationsStopAtDelayTime() {
+        val now = at(2026, 10, 31, 20, 44)
+        val (quote, bars) = GoldSource.parseSgeQuotations(q, now)
+        assertEquals(listOf("20:00", "20:01", "20:02", "02:29"), bars.map { it.label }) // 02:30 之后是填充值，不要
+        assertEquals(833.2, quote!!.price, 1e-9)
+        assertEquals(at(2026, 10, 31, 2, 29) + 58_000, quote.timeMs)                 // 自然日是 10-31（周六凌晨）
+        assertEquals(at(2026, 10, 30, 20, 0), bars[0].timeMs)                         // 夜盘开始是前一天 20:00
+        assertEquals(854.76, quote.high!!, 1e-9); assertEquals(833.2, quote.low!!, 1e-9)
+    }
+
+    @Test fun dailyFieldOrder() {
+        // 10-31 实测 /graph/Dailyhq 末尾数据：[日期, 开, 收, 低, 高]
+        val bars = GoldSource.parseSgeDaily("""{"time":[["2026-10-29",869.3,865.26,863.05,873.8],["2026-10-30",863.8,854.76,853.5,867]]}""")
+        val b = bars.last()
+        assertEquals("2026-10-30", b.label)
+        assertEquals(863.8, b.open, 1e-9); assertEquals(854.76, b.close, 1e-9)
+        assertEquals(853.5, b.low, 1e-9); assertEquals(867.0, b.high, 1e-9)
+    }
+}
