@@ -26,7 +26,7 @@ import java.util.Date
 import java.util.Locale
 
 /**
- * 网盘搜片。
+ * juicePans。
  *
  * 纯客户端聚合：并行问几个公开的网盘资源检索站，把「同一个资源在不同站点的多条结果」
  * 折叠成一条，再按网盘分组展示。不爬网盘、不登录、不绕任何限制，
@@ -34,7 +34,7 @@ import java.util.Locale
  */
 object PanModule : ToolModule {
     override val id = "pan"
-    override val name = "网盘搜片"
+    override val name = "juicePans"
     override val category = Category.TOOL
     override val icon: ImageVector = Icons.Filled.TravelExplore
 
@@ -73,6 +73,18 @@ object PanModule : ToolModule {
     fun allDups(ctx: Context): Boolean = prefs(ctx).getBoolean("all_dups", false)
     fun setAllDups(ctx: Context, on: Boolean) {
         prefs(ctx).edit().putBoolean("all_dups", on).apply()
+        bump()
+    }
+
+    /**
+     * 严格匹配：标题一个分词都没命中的直接剔除。默认开。
+     *
+     * 之前这个开关不存在，kwHits 只参与排序，结果「一年级毕业季」能搜出「恶作剧之吻」——
+     * 后者的简介蹭到了关键词。搜资源这件事宁可少给几条，也不要让用户自己在噪音里翻。
+     */
+    fun strict(ctx: Context): Boolean = prefs(ctx).getBoolean("strict", true)
+    fun setStrict(ctx: Context, on: Boolean) {
+        prefs(ctx).edit().putBoolean("strict", on).apply()
         bump()
     }
 
@@ -129,6 +141,7 @@ object PanModule : ToolModule {
             cloudTypes = cloudFilter(ctx),
             limitPerCloud = limitPerCloud(ctx),
             allDups = allDups(ctx),
+            strict = strict(ctx),
             fresh = force,
         )
         try {
@@ -139,6 +152,7 @@ object PanModule : ToolModule {
             _state.value = _state.value.copy(
                 loading = false, items = r.items, errors = r.errors, skipped = r.skippedEngines,
                 variant = r.variantUsed, elapsed = r.elapsedMs, done = true,
+                droppedRelevance = r.droppedRelevance,
                 version = _state.value.version + 1,
             )
             prefs(ctx).edit()
@@ -193,5 +207,7 @@ data class PanUiState(
     val variant: String = "",
     val elapsed: Map<String, Long> = emptyMap(),
     val done: Boolean = false,
+    /** 被相关性硬门槛剔除的条数，展示给用户，让他知道不是没搜到而是被筛掉了 */
+    val droppedRelevance: Int = 0,
     val version: Int = 0,
 )

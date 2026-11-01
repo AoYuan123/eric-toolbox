@@ -84,6 +84,7 @@ fun PanRoot(onBack: () -> Unit) {
     val engines = remember(ver) { PanModule.engines(ctx) }
     val limit = remember(ver) { PanModule.limitPerCloud(ctx) }
     val dups = remember(ver) { PanModule.allDups(ctx) }
+    val strictMode = remember(ver) { PanModule.strict(ctx) }
     val cooling = remember(ver, st.done) { PanModule.coolingEngines(ctx) }
 
     val doSearch: () -> Unit = {
@@ -93,7 +94,7 @@ fun PanRoot(onBack: () -> Unit) {
     }
 
     Column(Modifier.fillMaxSize()) {
-        TopBar("网盘搜片", onBack, trailing = {
+        TopBar("juicePans", onBack, trailing = {
             IconButton(onClick = { showSettings = !showSettings }) {
                 Icon(Icons.Filled.Tune, "设置", tint = if (showSettings) C.Gold else C.Muted)
             }
@@ -150,7 +151,7 @@ fun PanRoot(onBack: () -> Unit) {
                 }
             }
 
-            if (showSettings) SettingsCard(engines, limit, dups)
+            if (showSettings) SettingsCard(engines, limit, dups, strictMode)
 
             // ---------------- 状态行 ----------------
             if (st.loading) {
@@ -162,6 +163,7 @@ fun PanRoot(onBack: () -> Unit) {
                 Text(
                     buildString {
                         append("共 ${st.items.size} 条")
+                        if (st.droppedRelevance > 0) append(" · 过滤 ${st.droppedRelevance} 条无关结果")
                         if (st.variant.isNotBlank()) append(" · 换了关键词「${st.variant}」才搜到")
                         if (st.skipped.isNotEmpty()) append(" · 跳过 ${st.skipped.joinToString("/")}（冷却中）")
                     },
@@ -195,7 +197,7 @@ fun PanRoot(onBack: () -> Unit) {
 }
 
 @Composable
-private fun SettingsCard(engines: List<String>, limit: Int, dups: Boolean) {
+private fun SettingsCard(engines: List<String>, limit: Int, dups: Boolean, strictMode: Boolean) {
     val ctx = LocalContext.current
     CardBox {
         Text("数据源", color = C.Text, fontSize = 15.sp, fontWeight = FontWeight.Medium)
@@ -222,6 +224,12 @@ private fun SettingsCard(engines: List<String>, limit: Int, dups: Boolean) {
             sub = "关闭时同名资源折叠成一条，展开能看到同资源的不同链接",
             checked = dups,
             onChange = { PanModule.setAllDups(ctx, it) },
+        )
+        ToggleRow(
+            title = "严格匹配",
+            sub = "开：标题没命中关键词的直接剔掉，噪音少。关：保留全部结果，可能混进无关项",
+            checked = strictMode,
+            onChange = { PanModule.setStrict(ctx, it) },
         )
     }
 }

@@ -96,6 +96,8 @@ data class SearchResult(
     val elapsedMs: Map<String, Long> = emptyMap(),
     /** 是否启用了 TA搜 兜底（默认源全空时才会发生） */
     val atawFallback: Boolean = false,
+    /** 被相关性硬门槛剔除的条数（开启了严格匹配时才有意义） */
+    val droppedRelevance: Int = 0,
 ) {
     /** 按网盘分组，顺序固定 */
     fun grouped(): List<Pair<String, List<PanItem>>> =
@@ -153,4 +155,12 @@ data class SearchOptions(
     val allDups: Boolean = false,
     /** 单源内部最多抓多少条详情（盘小子 / ataw 用），影响耗时 */
     val engineItemLimit: Int = 8,
+    /**
+     * 严格匹配：标题一个分词都没命中的直接剔除，而不是只排到后面。
+     *
+     * 之前 kwHits 只参与排序不参与剔除，导致「一年级毕业季」能搜出「恶作剧之吻」
+     * （它的剧情简介里蹭到了关键词）——这种噪音照样上榜，只能靠人肉筛。
+     * 默认开。关掉可以捞漏网之鱼，但要自己承担噪音。
+     */
+    val strict: Boolean = true,
 )

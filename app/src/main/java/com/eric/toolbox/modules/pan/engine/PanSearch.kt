@@ -124,7 +124,12 @@ class PanSearch(
         }
 
         // 6. 聚合
-        val items = if (raw.isEmpty()) emptyList() else Aggregator.aggregate(raw, kw, opts, dead)
+        var droppedRelevance = 0
+        val items = if (raw.isEmpty()) {
+            emptyList()
+        } else {
+            Aggregator.aggregate(raw, kw, opts, dead) { droppedRelevance = it }
+        }
         errors.sort()
 
         return SearchResult(
@@ -136,6 +141,7 @@ class PanSearch(
             variantUsed = variantUsed,
             elapsedMs = elapsed,
             atawFallback = atawFallback,
+            droppedRelevance = droppedRelevance,
         )
     }
 

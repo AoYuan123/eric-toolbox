@@ -105,8 +105,9 @@ object Quality {
      * - min > UNKNOWN 且 requireKnown = false → UNKNOWN 通过（默认，避免大量无标注站点搜出空结果）。
      */
     fun pass(level: Level, min: Level, requireKnown: Boolean): Boolean {
-        // 「只看明确标注」优先判断：不限画质但要求标注时，UNKNOWN 一样要挡掉
-        if (requireKnown && !level.known) return false
+        // 未标注的处置只看 requireKnown，不参与 rank 比较——
+        // 否则门槛一开就会把「站点没标清晰度」的内容全误杀，大多数站会直接搜空。
+        if (!level.known) return !requireKnown
         if (min == Level.UNKNOWN) return true
         return level.rank >= min.rank
     }
