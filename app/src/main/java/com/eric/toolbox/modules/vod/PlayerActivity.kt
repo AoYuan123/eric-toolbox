@@ -85,6 +85,8 @@ class PlayerActivity : ComponentActivity() {
         readExtras(intent)
 
         setContent {
+            // BackHandler 必须在 Compose 上下文里，放到 setContent 外会编译不过
+            BackHandler { finish() }
             Column(Modifier.fillMaxSize().background(Color.Black)) {
                 if (barVisible) {
                     ChromeBar(
@@ -102,9 +104,10 @@ class PlayerActivity : ComponentActivity() {
                                 useController = true
                                 controllerShowTimeoutMs = 3000
                                 setShowBuffering(PlayerView.SHOW_BUFFERING_ALWAYS)
-                                setControllerVisibilityListener { v ->
+                                // 两个重载同名（PlayerView / PlayerControlView），必须显式指定类型
+                                setControllerVisibilityListener(PlayerView.ControllerVisibilityListener { v ->
                                     barVisible = v == android.view.View.VISIBLE
-                                }
+                                })
                             }
                         },
                         modifier = Modifier.fillMaxSize(),
@@ -118,7 +121,6 @@ class PlayerActivity : ComponentActivity() {
                 }
             }
         }
-        BackHandler { finish() }
         setupPlayer()
         play(epIndex)
     }
