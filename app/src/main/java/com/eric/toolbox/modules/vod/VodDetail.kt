@@ -16,11 +16,13 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoFixHigh
+import androidx.compose.material.icons.filled.HighQuality
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -44,8 +46,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.eric.toolbox.modules.vod.core.ParseResolver
+import com.eric.toolbox.modules.vod.core.Quality
 import com.eric.toolbox.modules.vod.core.VodPrefs
 import com.eric.toolbox.modules.vod.model.Episode
+import com.eric.toolbox.modules.vod.model.PlayGroup
 import com.eric.toolbox.modules.vod.model.VodItem
 import com.eric.toolbox.ui.C
 import com.eric.toolbox.ui.SectionLabel
@@ -119,6 +123,7 @@ fun DetailScreen(item: VodItem, onBack: () -> Unit) {
                 }
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(full.name, color = C.Text, fontSize = 16.sp)
+                    MetaLine("清晰度", Quality.of(full).label.ifBlank { "站点未标注" })
                     MetaLine("类型", full.typeName)
                     MetaLine("年份", full.year)
                     MetaLine("地区", full.area)
@@ -145,10 +150,30 @@ fun DetailScreen(item: VodItem, onBack: () -> Unit) {
             } else {
                 SectionLabel("线路")
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    items(groups) { g ->
-                        LineChip(g.source, groups.getOrNull(groupIndex)?.source == g.source) {
-                            groupIndex = groups.indexOf(g)
-                        }
+                    // 用下标而不是 source 名判选中：站点给出的两条线路同名时会一起高亮
+                    itemsIndexed(groups) { i, g ->
+                        LineChip(lineLabel(g), i == groupIndex) { groupIndex = i }
+                    }
+                }
+
+                // 同一部片往往挂着好几条不同清晰度的线路，给个一键到最高画质
+                val bestIdx = remember(groups) { Quality.bestIndex(groups) }
+                if (bestIdx >= 0 && bestIdx != groupIndex) {
+                    Row(
+                        Modifier
+                            .clickable { groupIndex = bestIdx }
+                            .padding(vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(
+                            Icons.Filled.HighQuality, null, tint = C.Gold,
+                            modifier = Modifier.height(15.dp),
+                        )
+                        Spacer(Modifier.width(4.dp))
+                        Text(
+                            "跳到最高画质：${Quality.of(groups[bestIdx]).label} · ${groups[bestIdx].source}",
+                            color = C.Gold, fontSize = 13.sp,
+                        )
                     }
                 }
 
@@ -195,6 +220,12 @@ fun DetailScreen(item: VodItem, onBack: () -> Unit) {
             Spacer(Modifier.height(24.dp))
         }
     }
+}
+
+/** 线路名带上画质，比如「蓝光4K线路 · 4K」。没标画质就原样显示。 */
+private fun lineLabel(g: PlayGroup): String {
+    val q = Quality.of(g)
+    return if (q.known) "${g.source} · ${q.label}" else g.source
 }
 
 @Composable

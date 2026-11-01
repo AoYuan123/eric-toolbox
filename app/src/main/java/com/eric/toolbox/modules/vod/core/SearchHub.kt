@@ -24,7 +24,9 @@ object SearchHub {
         val errors: List<String>,
         val searchedCount: Int,
         /** 被门槛刷掉多少条，用于在 UI 上说明「还有 N 条弱相关结果没显示」 */
-        val droppedCount: Int,
+        val droppedCount: Int = 0,
+        /** 被画质门槛刷掉多少条 */
+        val droppedByQuality: Int = 0,
     )
 
     suspend fun search(
@@ -34,7 +36,12 @@ object SearchHub {
         timeoutMs: Int = 15_000,
         strict: Boolean = true,
         limitPerSite: Int = 12,
+        /** 画质门槛，取 Quality.Level.rank；0 = 不限 */
+        minQualityRank: Int = 0,
+        /** 是否只保留站点明确标注了清晰度的内容。见 Quality.pass 的注释 */
+        requireKnownQuality: Boolean = false,
     ): SearchOutcome = withContext(Dispatchers.IO) {
+        val min = Quality.Level.fromRank(minQualityRank)
         val targets = sites.filter { it.searchable && it.supported && it.hasApi }
         if (targets.isEmpty() || keyword.isBlank()) {
             return@withContext SearchOutcome(emptyList(), listOf("没有可搜索的站点"), 0, 0)
@@ -46,6 +53,7 @@ object SearchHub {
             val scored = ArrayList<Pair<VodItem, Double>>()
             val errors = ArrayList<String>()
             var dropped = 0
+            var droppedQuality = 0
             for (job in jobs) {
                 val (res, site) = job.await()
                 val page = res.getOrNull()
@@ -61,6 +69,13 @@ object SearchHub {
                         dropped++
                         continue
                     }
+                    // 画质门槛：低于用户要求的一律不上榜。
+                    // 站点没标画质时按 requireKnownQuality 决定去留，默认保留，
+                    // 否则大量不标清晰度的站点会直接搜出空结果。
+                    if (!Quality.pass(Quality.of(item), min, requireKnownQuality)) {
+                        droppedQuality++
+                        continue
+                    }
                     scored += item to score
                 }
             }
@@ -70,7 +85,7 @@ object SearchHub {
                 .map { (_, list) -> list.maxBy { it.second } }
                 .sortedByDescending { it.second }
                 .map { it.first }
-            SearchOutcome(hits, errors, targets.size, dropped)
+            SearchOutcome(hits, errors, targets.size, dropped, droppedQuality)
         }
     }
 

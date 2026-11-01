@@ -57,6 +57,8 @@ object VodModule : ToolModule {
         val searchedCount: Int = 0,
         /** 被相关性门槛挡掉的条数 */
         val droppedCount: Int = 0,
+        /** 被画质门槛挡掉的条数 */
+        val droppedByQuality: Int = 0,
         val ua: String = "",
         val timeoutMs: Int = 15_000,
         val parses: List<ParseRule> = emptyList(),
@@ -152,15 +154,29 @@ object VodModule : ToolModule {
         if (kw.isBlank()) return
         val sites = _state.value.sites.ifEmpty { ConfigRepo.merged(ctx).sites }
         bump { it.copy(loading = true, error = "", items = emptyList()) }
-        val out = SearchHub.search(sites, kw, _state.value.ua, _state.value.timeoutMs, strict)
+        val out = SearchHub.search(
+            sites = sites,
+            keyword = kw,
+            ua = _state.value.ua,
+            timeoutMs = _state.value.timeoutMs,
+            strict = strict,
+            minQualityRank = VodPrefs.minQuality(ctx),
+            requireKnownQuality = VodPrefs.requireKnownQuality(ctx),
+        )
         bump {
             it.copy(
                 loading = false,
                 items = out.hits,
                 searchedCount = out.searchedCount,
                 droppedCount = out.droppedCount,
+                droppedByQuality = out.droppedByQuality,
                 error = if (out.hits.isEmpty()) {
-                    out.errors.firstOrNull() ?: "没有找到相关结果，换个名字试试"
+                    out.errors.firstOrNull()
+                        ?: if (out.droppedByQuality > 0) {
+                            "有 ${out.droppedByQuality} 条被画质筛选挡掉了，放宽要求再试试"
+                        } else {
+                            "没有找到相关结果，换个名字试试"
+                        }
                 } else "",
             )
         }
