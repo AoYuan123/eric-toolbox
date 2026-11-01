@@ -84,7 +84,7 @@ object VodHttp {
         is SocketTimeoutException -> "连接超时"
         is UnknownHostException -> "域名解析失败，检查网络或换一个源"
         is java.net.ConnectException -> "连不上，源站可能已关闭"
-        is java.net.SSLHandshakeException -> "SSL 握手失败，源站证书有问题"
+        is javax.net.ssl.SSLHandshakeException -> "SSL 握手失败，源站证书有问题"
         is IllegalArgumentException -> e.message ?: "参数有误"
         else -> {
             val msg = e.message.orEmpty()
