@@ -69,6 +69,16 @@ dependencies {
     implementation("androidx.work:work-runtime-ktx:2.10.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
 
+    // 影视板块：播放器 + 海报加载
+    // Media3 1.9+ 要求 compileSdk 36，本工程锁在 35（AGP 8.7.3 官方推荐上限也是 35），
+    // 所以停在 1.6.1——这个版本的播放器 API 与我们要用的完全一致，不要随手升。
+    val media3 = "1.6.1"
+    implementation("androidx.media3:media3-exoplayer:$media3")
+    implementation("androidx.media3:media3-exoplayer-hls:$media3")
+    implementation("androidx.media3:media3-exoplayer-dash:$media3")
+    implementation("androidx.media3:media3-ui:$media3")
+    implementation("io.coil-kt:coil-compose:2.7.0")
+
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20240303")
 }
