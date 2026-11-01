@@ -5,6 +5,7 @@ import com.eric.toolbox.modules.datecalc.DateCalcModule
 import com.eric.toolbox.modules.gold.GoldModule
 import com.eric.toolbox.modules.pan.PanModule
 import com.eric.toolbox.modules.trials.TrialModule
+import com.eric.toolbox.modules.vod.VodModule
 
 /**
  * 模块登记表。新增模块只需要在 all 里加一行。
@@ -15,6 +16,7 @@ object ModuleRegistry {
         TrialModule,
         DateCalcModule,
         PanModule,
+        VodModule,
         // 以后的新模块加在这里
     )
 

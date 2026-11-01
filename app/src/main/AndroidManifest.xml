@@ -35,6 +35,16 @@
             </intent-filter>
         </activity>
 
+        <!-- 影视播放页：全屏横屏，跟随旋转重建由 configChanges 自行处理 -->
+        <activity
+            android:name=".modules.vod.PlayerActivity"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|smallestScreenSize|density|uiMode"
+            android:exported="false"
+            android:launchMode="singleTask"
+            android:screenOrientation="landscape"
+            android:supportsPictureInPicture="true"
+            android:theme="@style/Theme.EricToolbox" />
+
         <!-- 后台监控服务：使用 specialUse 类型，避免 Android 15 对 dataSync 类型每天 6 小时的上限 -->
         <service
             android:name=".core.MonitorService"
