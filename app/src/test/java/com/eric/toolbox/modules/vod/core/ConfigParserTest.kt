@@ -157,8 +157,14 @@ class ConfigParserTest {
         assertEquals(1, cfg.sites.size)
         assertEquals("可用站", cfg.sites.first().name)
 
+        // 注意：这里不能写成 `?: fail(...)`。JUnit 的 fail() 返回 void，
+        // Kotlin 眼里是 Unit，Elvis 两侧的共同类型会被推成 Any，
+        // 后面调 .contains() 就编译不过了（本次 CI 第二轮就栽在这）。
         val spider = cfg.warnings.firstOrNull { it.contains("Spider") }
-            ?: fail("应该有 Spider 汇总提示")
+        if (spider == null) {
+            fail("应该有 Spider 汇总提示")
+            return
+        }
         assertTrue("汇总里要报数量：$spider", spider.contains("3 个"))
         assertTrue("汇总里要举例子：$spider", spider.contains("豆豆"))
         assertTrue("警告不该刷屏：${cfg.warnings}", cfg.warnings.size <= 2)
