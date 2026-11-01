@@ -15,13 +15,24 @@
         android:name="android.permission.SCHEDULE_EXACT_ALARM"
         android:maxSdkVersion="32" />
 
+    <!--
+        明文 http：这里刻意保持 true（2026-11-01 用户拍板，不是手误，别顺手改回 false）。
+
+        原因：影视板块的数据源由用户自己填写，而市面上的采集站绝大多数只有 http。
+        关掉它等于把影视板块废掉一半。这是 Android P 之后所有 TVBox 类壳子的共同选择：
+        源既然是用户挑的，风险由用户承担。
+
+        代价要认：http 源的传输内容没有加密，同一局域网内的中间人能看到。
+        替代方案（运行时域名白名单）在 Android 上做不到 —— usesCleartextTraffic 只能编译期决定，
+        静态 domain 名单又要求每换一个源就改代码重发版，对这个 App 不成立。
+    -->
     <application
         android:name=".App"
         android:allowBackup="false"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:supportsRtl="false"
-        android:usesCleartextTraffic="false"
+        android:usesCleartextTraffic="true"
         android:theme="@style/Theme.EricToolbox">
 
         <activity

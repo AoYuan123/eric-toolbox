@@ -259,15 +259,15 @@ fun SubscriptionScreen(onBack: () -> Unit) {
                 OutlinedTextField(
                     urlText, { urlText = it },
                     label = { Text("配置地址") },
-                    placeholder = { Text("https://.../config.json") },
+                    placeholder = { Text("http(s)://.../config.json") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
                 Button(
                     onClick = {
                         val u = urlText.trim()
-                        if (!u.startsWith("https://")) {
-                            note = "地址必须是 https 开头"
+                        if (!u.startsWith("http://") && !u.startsWith("https://")) {
+                            note = "地址要以 http:// 或 https:// 开头"
                             return@Button
                         }
                         val sub = Subscription(
