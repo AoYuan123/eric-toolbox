@@ -153,6 +153,23 @@ object VodPrefs {
         p(ctx).edit().putBoolean("use_parse", v).apply()
     }
 
+    /**
+     * 画质门槛，存的是 Quality.Level.rank；0 = 不限。
+     * 默认不限——大多数站点压根不标清晰度，一上来就卡门槛会直接搜不出东西。
+     */
+    fun minQuality(ctx: Context): Int = p(ctx).getInt("min_quality", 0)
+
+    fun setMinQuality(ctx: Context, rank: Int) {
+        p(ctx).edit().putInt("min_quality", rank).apply()
+    }
+
+    /** 只保留站点明确标了清晰度的内容。开了会少很多结果，但每一条都对得上。 */
+    fun requireKnownQuality(ctx: Context): Boolean = p(ctx).getBoolean("require_quality", false)
+
+    fun setRequireKnownQuality(ctx: Context, v: Boolean) {
+        p(ctx).edit().putBoolean("require_quality", v).apply()
+    }
+
     fun lastSiteKey(ctx: Context): String = p(ctx).getString("last_site", "").orEmpty()
 
     fun setLastSiteKey(ctx: Context, v: String) {

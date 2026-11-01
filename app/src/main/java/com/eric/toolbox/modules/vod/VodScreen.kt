@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -32,6 +33,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -43,6 +45,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.eric.toolbox.modules.vod.core.Quality
+import com.eric.toolbox.modules.vod.core.VodPrefs
 import com.eric.toolbox.modules.vod.model.VodItem
 import com.eric.toolbox.ui.C
 import com.eric.toolbox.ui.Segmented
@@ -160,7 +164,7 @@ private fun BrowsePane(
                 PosterCard(
                     title = item.name,
                     pic = item.pic,
-                    badge = item.remarks.ifBlank { item.typeName },
+                    badge = Quality.of(item).label.ifBlank { item.remarks.ifBlank { item.typeName } },
                     onClick = { onOpen(item) },
                 )
             }
@@ -180,6 +184,13 @@ private fun SearchPane(
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     var kw by remember { mutableStateOf("") }
+    var minRank by remember { mutableIntStateOf(VodPrefs.minQuality(ctx)) }
+    var requireKnown by remember { mutableStateOf(VodPrefs.requireKnownQuality(ctx)) }
+
+    fun doSearch() {
+        if (kw.isBlank()) return
+        scope.launch { VodModule.search(ctx, kw, strict) }
+    }
 
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         OutlinedTextField(
@@ -189,13 +200,9 @@ private fun SearchPane(
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-            keyboardActions = KeyboardActions(
-                onSearch = {
-                    scope.launch { VodModule.search(ctx, kw, strict) }
-                },
-            ),
+            keyboardActions = KeyboardActions(onSearch = { doSearch() }),
             trailingIcon = {
-                IconButton(onClick = { scope.launch { VodModule.search(ctx, kw, strict) } }) {
+                IconButton(onClick = { doSearch() }) {
                     Icon(Icons.Filled.Search, "搜索", tint = C.Muted)
                 }
             },
@@ -212,14 +219,53 @@ private fun SearchPane(
             )
         }
 
+        // 画质门槛。站点标了清晰度才有效，没标的一律按「未标注」处理
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text("画质", color = C.Text, fontSize = 14.sp, modifier = Modifier.width(40.dp))
+            LazyRow(
+                modifier = Modifier.weight(1f),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                items(Quality.Level.thresholds()) { lvl ->
+                    LineChip(
+                        text = if (lvl == Quality.Level.UNKNOWN) "不限" else "${lvl.label}+",
+                        selected = lvl.rank == minRank,
+                        onClick = {
+                            minRank = lvl.rank
+                            VodPrefs.setMinQuality(ctx, lvl.rank)
+                            doSearch()
+                        },
+                    )
+                }
+            }
+        }
+
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("只看标了清晰度的", color = C.Text, fontSize = 14.sp)
+                Text(
+                    if (requireKnown) "未标注画质的内容会被剔除，结果少但每条都对得上" else "未标注画质的内容会保留（大多数站点不标）",
+                    color = C.Muted, fontSize = 12.sp,
+                )
+            }
+            Switch(
+                checked = requireKnown,
+                onCheckedChange = {
+                    requireKnown = it
+                    VodPrefs.setRequireKnownQuality(ctx, it)
+                    doSearch()
+                },
+                colors = SwitchDefaults.colors(checkedTrackColor = C.Gold, checkedThumbColor = Color.White),
+            )
+        }
+
         if (v.loading) LoadingRow()
 
         if (v.searchedCount > 0 && v.items.isNotEmpty()) {
-            Text(
-                "${v.searchedCount} 个站点 · ${v.items.size} 条结果" +
-                    if (v.droppedCount > 0) " · 已过滤 ${v.droppedCount} 条弱相关" else "",
-                color = C.Muted, fontSize = 12.sp,
-            )
+            var line = "${v.searchedCount} 个站点 · ${v.items.size} 条结果"
+            if (v.droppedCount > 0) line += " · 过滤 ${v.droppedCount} 条弱相关"
+            if (v.droppedByQuality > 0) line += " · 过滤 ${v.droppedByQuality} 条低画质"
+            Text(line, color = C.Muted, fontSize = 12.sp)
         }
         if (v.error.isNotBlank() && v.items.isEmpty()) EmptyHint(v.error)
 
@@ -233,7 +279,7 @@ private fun SearchPane(
                 PosterCard(
                     title = item.name,
                     pic = item.pic,
-                    badge = item.remarks.ifBlank { item.siteName },
+                    badge = Quality.of(item).label.ifBlank { item.remarks.ifBlank { item.siteName } },
                     onClick = { onOpen(item) },
                 )
             }

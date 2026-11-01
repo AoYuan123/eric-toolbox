@@ -99,4 +99,76 @@ class AggregatorTest {
         val out = Aggregator.aggregate(items, "星际穿越 诺兰", SearchOptions())
         assertTrue(out[0].note.contains("诺兰"))
     }
+
+    // ------------------------------------------------ 严格匹配 / 简介去噪
+
+    /** 真实事故：搜「一年级毕业季」搜出了「恶作剧之吻」，因为它的简介里出现了完整关键词 */
+    private val noisyItem = PanItem(
+        cloud = "quark",
+        url = "https://pan.quark.cn/s/noisy",
+        note = "恶作剧之吻 全2季描述：故事从一场告白开始。一年级毕业季这天花招百出，" +
+            "袁湘琴终于追到了江直树。",
+    )
+
+    @Test
+    fun 纯标题要把简介切干净() {
+        assertEquals("恶作剧之吻 全2季", Aggregator.pureTitle(noisyItem.note))
+        assertEquals("某剧 第1集", Aggregator.pureTitle("某剧 第1集简介：balabala"))
+        assertEquals("未标注资源", Aggregator.pureTitle("未标注资源"))
+        assertEquals("", Aggregator.pureTitle(null))
+        assertEquals("", Aggregator.pureTitle(""))
+    }
+
+    @Test
+    fun 严格匹配剔除只蹭到简介的结果() {
+        val out = Aggregator.aggregate(listOf(noisyItem), "一年级毕业季", SearchOptions())
+        assertEquals(0, out.size)
+    }
+
+    @Test
+    fun 关掉严格匹配后能捞回来() {
+        val out = Aggregator.aggregate(
+            listOf(noisyItem), "一年级毕业季", SearchOptions(strict = false),
+        )
+        assertEquals(1, out.size)
+    }
+
+    @Test
+    fun 严格匹配不误伤正常结果() {
+        val good = PanItem(
+            cloud = "quark",
+            url = "https://pan.quark.cn/s/good",
+            note = "一年级毕业季 2016 全集 4K",
+        )
+        val out = Aggregator.aggregate(listOf(good), "一年级毕业季", SearchOptions())
+        assertEquals(1, out.size)
+    }
+
+    @Test
+    fun 剔除数量通过回调传给上层() {
+        val items = listOf(
+            noisyItem,
+            PanItem(
+                cloud = "quark",
+                url = "https://pan.quark.cn/s/ok",
+                note = "一年级毕业季 2016",
+            ),
+        )
+        var dropped = -1
+        val out = Aggregator.aggregate(items, "一年级毕业季", SearchOptions()) { dropped = it }
+        assertEquals(1, out.size)
+        assertEquals(1, dropped)
+    }
+
+    @Test
+    fun 多个关键词只要命中一个就保留() {
+        // 分词后有两个 token，只命中一半也要留着，否则容易矫枉过正
+        val item = PanItem(
+            cloud = "quark",
+            url = "https://pan.quark.cn/s/a1",
+            note = "一年级 综艺合集",
+        )
+        val out = Aggregator.aggregate(listOf(item), "一年级 毕业季", SearchOptions())
+        assertEquals(1, out.size)
+    }
 }

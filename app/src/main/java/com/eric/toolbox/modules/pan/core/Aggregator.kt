@@ -21,16 +21,27 @@ object Aggregator {
         opts: SearchOptions,
         /** 本地确认失效的 URL（规范化后），这些沉底 */
         deadUrls: Set<String> = emptySet(),
+        /** 被相关性硬门槛剔除了多少条，回调给调用方用于在界面上说明 */
+        onDroppedRelevance: (Int) -> Unit = {},
     ): List<PanItem> {
         if (raw.isEmpty()) return emptyList()
+
+        var droppedRelevance = 0
 
         // 1. 过滤 + 填归一化标题
         val filtered = ArrayList<PanItem>(raw.size)
         for (item in raw) {
             if (!passFilters(item, opts)) continue
             item.normTitle = TitleNormalizer.normalize(item.note)
+            // 严格匹配：标题一个分词都没命中的直接丢掉，而不是只排到后面。
+            // 判定的依据是**纯标题**，不带简介——详见 pureTitle 的注释。
+            if (opts.strict && kwHits(pureTitle(item.note), keyword) == 0) {
+                droppedRelevance++
+                continue
+            }
             filtered.add(item)
         }
+        onDroppedRelevance(droppedRelevance)
         if (filtered.isEmpty()) return emptyList()
 
         // 2. 一级去重：URL 规范化后相同的只留第一条
@@ -152,15 +163,31 @@ object Aggregator {
     }
 
     private fun groupComparator(kw: String): Comparator<PanItem> =
-        compareByDescending<PanItem> { kwHits(it.note, kw) }
+        compareByDescending<PanItem> { kwHits(pureTitle(it.note), kw) }
             .thenByDescending { dateNum(it.datetime) }
             .thenBy { CloudType.engineRank(it.source) }
 
     private fun globalComparator(kw: String): Comparator<PanItem> =
-        compareByDescending<PanItem> { kwHits(it.note, kw) }
+        compareByDescending<PanItem> { kwHits(pureTitle(it.note), kw) }
             .thenBy { CloudType.engineRank(it.source) }
 
-    /** 关键词命中数：note 里出现了几个分词 */
+    /** 「描述：」「简介：」「详情：」这类分隔符，之后的内容全是正文，不是标题 */
+    private val DESC_SPLIT = Regex("[描简详][述介情]\\s*[:：]")
+
+    /**
+     * 取纯标题：note 里标题和简介经常被拼成一个字符串。
+     *
+     * 这不是洁癖。真实案例：搜「一年级毕业季」搜出了「恶作剧之吻」，
+     * 因为它的简介里有「……一年级……毕业季……」的相关描述，
+     * 全文匹配就把它召回了。判相关性之前必须先把这段正文切掉。
+     */
+    fun pureTitle(note: String?): String {
+        if (note.isNullOrBlank()) return ""
+        val m = DESC_SPLIT.find(note) ?: return note
+        return note.substring(0, m.range.first).trim()
+    }
+
+    /** 关键词命中数：note 里出现了几个分词。调用前请先用 [pureTitle] 剥掉简介 */
     fun kwHits(note: String?, kw: String?): Int {
         val n = note ?: return 0
         val tokens = (kw ?: "").split(Regex("""[\s,，]+""")).filter { it.isNotBlank() }
