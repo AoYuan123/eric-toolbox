@@ -159,6 +159,7 @@ object Heartbeat {
             AlertLog.add(
                 ctx, AlertEntry(System.currentTimeMillis(), AlertLog.SYSTEM, "后台曾被系统停止约 ${late / 60_000} 分钟", "已自动恢复。频繁出现请检查“我的 › 后台保活设置”。"),
             )
+            Mailer.sendAlert(ctx, "system", "后台曾被系统停止约 ${late / 60_000} 分钟", "已自动恢复。频繁出现请检查“我的 › 后台保活设置”。")
         }
     }
 }

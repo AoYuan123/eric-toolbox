@@ -46,7 +46,8 @@ app/src/main/java/com/eric/toolbox/
 │   ├── Store.kt           SharedPreferences 分区（global、mod_<id>、alert_log）+ 备份导出/恢复
 │   ├── Http.kt            只允许 https，超时与大小上限
 │   ├── Updater.kt         检查更新（Gitee 优先，GitHub 兜底）
-│   └── ApkInstaller.kt    App 内下载新版并调起系统安装
+│   ├── ApkInstaller.kt    App 内下载新版并调起系统安装
+│   └── Mailer.kt          邮件提醒（QQ 邮箱 SMTP smtp.qq.com:465 + 授权码；多收件人各选类别；失败重试 3 次后记入「记录」）
 ├── ui/
 │   ├── Theme.kt           配色 C（可切主题：曜石黑/象牙白/墨绿/跟随系统；红涨绿跌可切）+ 通用组件
 │   ├── HomeScreen.kt      首页（运行状态条 + 模块卡片，分“监控类/工具类”）
@@ -114,7 +115,12 @@ app/src/test/.../GoldLogicTest.kt、DateLogicTest.kt、TrialLogicTest.kt   单�
 - 11-02 实测：不登录下载 Gitee 发行版附件可行（99MB 附件跳转 foruda.gitee.com 正常下载）。
 - 备选方案记录：阿里云 OSS 自 2024-08-05 起新建 Bucket 用默认域名下载 APK 会被拦截，必须绑定已 ICP 备案的域名。
 
-## 8. 待定事项
+## 8. 邮件提醒（11-02 用户确认预览后上线）
+- 入口「我的 › 邮件提醒」（ui/MailScreen.kt）。Notifier.alert 统一分发：写记录 → 手机通知（可关）→ 邮件（类别 gold / trials / system，按收件人勾选）。
+- 授权码存在 SharedPreferences "mail_secret"，不在 Store.allNames()，所以不进备份；其他邮件设置存 global（mail_*），可备份。
+- 每个收件人单独发一封；校验 smtp.qq.com 证书主机名。授权码由用户自己在 QQ 邮箱生成并填入。
+
+## 9. 待定事项
 - 语言目前只有简体中文。
 - 临床试验标题显示 ClinicalTrials.gov 英文原文（预览里的中文标题是我概括的，App 不做翻译）。
 - 真机上的显示效果、后台保活时长、手势体验都还没有用户反馈。

@@ -45,6 +45,7 @@ import com.eric.toolbox.ui.ArrangeScreen
 import com.eric.toolbox.ui.BackupScreen
 import com.eric.toolbox.ui.C
 import com.eric.toolbox.ui.HomeScreen
+import com.eric.toolbox.ui.MailScreen
 import com.eric.toolbox.ui.KeepAliveScreen
 import com.eric.toolbox.ui.MineScreen
 import com.eric.toolbox.ui.RecordsScreen
@@ -59,6 +60,7 @@ sealed interface Route {
     data object KeepAlive : Route
     data object Arrange : Route
     data object Backup : Route
+    data object Mail : Route
 }
 
 private val TABS = setOf<Route>(Route.Home, Route.Records, Route.Mine)
@@ -106,6 +108,7 @@ class MainActivity : ComponentActivity() {
                             Route.KeepAlive -> KeepAliveScreen(back)
                             Route.Arrange -> ArrangeScreen(back)
                             Route.Backup -> BackupScreen(back)
+                            Route.Mail -> MailScreen(back)
                         }
                     }
                     if (current in TABS) BottomBar(current, go)

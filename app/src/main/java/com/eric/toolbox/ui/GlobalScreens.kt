@@ -63,6 +63,7 @@ import com.eric.toolbox.core.RunWindow
 import com.eric.toolbox.core.Store
 import com.eric.toolbox.core.UpdateInfo
 import com.eric.toolbox.core.ApkInstaller
+import com.eric.toolbox.core.Mailer
 import com.eric.toolbox.core.Updater
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
@@ -142,6 +143,7 @@ fun MineScreen(go: (Route) -> Unit) {
         SectionLabel("提醒与后台")
         ListCard {
             RowItem("通知与提醒", "系统通知设置", onClick = { openAppNotificationSettings(ctx) })
+            RowItem("邮件提醒", if (Mailer.ready(ctx)) "已开启" else if (Mailer.config(ctx).enabled) "未填完" else "未开启", onClick = { go(Route.Mail) })
             RowItem("发送一条测试提醒", testMsg, onClick = {
                 Notifier.test(ctx); testMsg = if (Notifier.canPost(ctx)) "已发送" else "通知未开启"
             })

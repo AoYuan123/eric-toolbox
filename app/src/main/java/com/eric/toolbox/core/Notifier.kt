@@ -68,10 +68,11 @@ object Notifier {
     /** 测试提醒：走和真实提醒一样的渠道，但不写入记录。 */
     fun test(ctx: Context) = post(ctx, null, "测试提醒", "能看到这条，说明到价提醒可以正常送达。")
 
-    /** 发一条到价提醒，并写入提醒记录。 */
+    /** 发一条提醒：写入提醒记录；弹手机通知（邮件提醒里关掉“同时弹手机通知”时不弹）；按设置发邮件。 */
     fun alert(ctx: Context, moduleId: String, title: String, body: String) {
         AlertLog.add(ctx, AlertEntry(System.currentTimeMillis(), moduleId, title, body))
-        post(ctx, moduleId, title, body)
+        if (Mailer.shouldNotifyPhone(ctx)) post(ctx, moduleId, title, body)
+        if (moduleId in Mailer.CATEGORIES) Mailer.sendAlert(ctx, moduleId, title, body)
     }
 
     private fun post(ctx: Context, moduleId: String?, title: String, body: String) {
