@@ -111,8 +111,29 @@ jobs:
           echo "${REL}" | head -c 300; echo
           RID=$(echo "${REL}" | jq -r '.id // empty')
           if [ -z "${RID}" ]; then echo "::warning::Gitee 发行版创建失败"; exit 1; fi
-          curl -sS --max-time 600 -X POST "${API}/releases/${RID}/attach_files" \
-            -F "access_token=${GITEE_TOKEN}" -F "file=@${APK}" | head -c 300; echo
+          # 上传安装包：GitHub 到 Gitee 偶尔很慢（11-02 曾 10 分钟没传上），失败重试 3 次
+          OK=""
+          for TRY in 1 2 3; do
+            RES=$(curl -sS --max-time 600 --retry 2 -X POST "${API}/releases/${RID}/attach_files" \
+              -F "access_token=${GITEE_TOKEN}" -F "file=@${APK}" || true)
+            echo "第 ${TRY} 次上传：$(echo "${RES}" | head -c 200)"
+            if echo "${RES}" | jq -e '.name' >/dev/null 2>&1; then OK=1; break; fi
+            sleep 20
+          done
+          if [ -z "${OK}" ]; then
+            # 传不上就删掉这个空的发行版，免得 App 看到没有安装包的新版本
+            curl -sS --max-time 60 -X DELETE "${API}/releases/${RID}?access_token=${GITEE_TOKEN}" >/dev/null || true
+            curl -sS --max-time 60 -X DELETE "${API}/tags/${TAG}?access_token=${GITEE_TOKEN}" >/dev/null || true
+            echo "::warning::安装包没能传到 Gitee，已删除空发行版；App 会改用 GitHub 检查更新"
+            exit 1
+          fi
+          # 清理以前没传上安装包的空发行版
+          curl -sS --max-time 60 "${API}/releases?access_token=${GITEE_TOKEN}&per_page=100" \
+            | jq -r '.[] | select([.assets[]? | select(.name | endswith(".apk"))] | length == 0) | "\(.id) \(.tag_name)"' \
+            | while read -r EID ETAG; do
+                curl -sS --max-time 60 -X DELETE "${API}/releases/${EID}?access_token=${GITEE_TOKEN}" >/dev/null && echo "删除空发行版 ${ETAG}"
+                curl -sS --max-time 60 -X DELETE "${API}/tags/${ETAG}?access_token=${GITEE_TOKEN}" >/dev/null || true
+              done
           # 每个 Gitee 仓库附件总共不能超过 1GB：只保留最近 10 个发行版
           curl -sS --max-time 60 "${API}/releases?access_token=${GITEE_TOKEN}&per_page=100&direction=desc" \
             | jq -r 'sort_by(.id) | reverse | .[10:] | .[].id' | while read -r OLD; do

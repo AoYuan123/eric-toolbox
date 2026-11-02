@@ -27,7 +27,10 @@ object Updater {
     private suspend fun gitee(): UpdateInfo? {
         val repo = BuildConfig.GITEE_REPO
         val o = JSONObject(Http.get("https://gitee.com/api/v5/repos/$repo/releases/latest"))
-        return parse(o, "https://gitee.com/$repo/releases", "Gitee（国内）")
+        val info = parse(o, "https://gitee.com/$repo/releases", "Gitee（国内）")
+        // 新版本在 Gitee 上还没有安装包（同步失败）：当作 Gitee 不可用，改查 GitHub
+        if (info != null && info.apkUrl == null) throw java.io.IOException("Gitee 上的新版本缺少安装包")
+        return info
     }
 
     private suspend fun github(): UpdateInfo? {
