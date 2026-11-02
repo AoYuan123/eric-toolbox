@@ -100,7 +100,10 @@ app/src/test/.../GoldLogicTest.kt、DateLogicTest.kt、TrialLogicTest.kt   单�
 - 10/31 起东方财富 K 线路径（push2his …/kline/get、trends2）在用户网络下连接被断开（实时接口正常），疑似限流，原因未最终确认。走势改为：东方财富失败后 10 分钟内不再请求，改用新浪：
   - 新浪沪金主连日线 `https://stock2.finance.sina.com.cn/futures/api/jsonp.php/var%20_k=/InnerFuturesNewService.getDailyKLine?symbol=AU0`（2008 年至今），分钟线 `…/InnerFuturesNewService.getFewMinLine?symbol=AU0&type=1`（约 2 天）。是期货价，与 Au99.99 有差价；会出现未来时间的异常条目（已过滤）。档位补漏只用东方财富，不用新浪。
 - 新浪沪金：`https://hq.sinajs.cn/list=nf_AU0`（需 Referer `https://finance.sina.com.cn/`，GBK；第 8 位为最新价）。新浪上没找到上海金现货代码。
-- 工行：`https://mybank.icbc.com.cn/icbc/newperbank/perbank3/gold/goldaccrual_query_out.jsp`（GBK；积存金产品号 080020000521，如意金 080020000501；交易时间工作日 9:10–22:30，每 3 秒更新）
+- 工行：`https://mybank.icbc.com.cn/icbc/newperbank/perbank3/gold/goldaccrual_query_out.jsp`（GBK；积存金产品号 080020000521；交易时间工作日 9:10–22:30，每 3 秒更新）
+  - **如意金（080020000501）不在这个页面的 HTML 里**，是网页打开后用 JS 异步取的（11-02 才发现，之前用浏览器渲染后的页面核对，误以为 HTML 里有，所以 App 一直没取到如意金）。
+    接口：`POST https://mybank.icbc.com.cn/servlet/AsynGetDataServlet`，表单 `tranCode=A00505`，不需要登录，返回 UTF-8 JSON，`pronoinfo[].buyprice/sellprice` 单位是分（85103 = 851.03）。
+  - 教训：核对网页数据时要看服务器原始返回（fetch 原文），不要看浏览器执行完 JS 的页面。
 - 这些都是网站公开接口，不是官方 API，改版后要更新 `GoldSource.kt`。
 
 ## 7. 国内下载更新（11-02 定为 Gitee）

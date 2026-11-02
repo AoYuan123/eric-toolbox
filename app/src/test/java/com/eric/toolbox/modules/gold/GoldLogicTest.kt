@@ -318,3 +318,19 @@ class SgeTest {
         assertEquals(853.5, b.low, 1e-9); assertEquals(867.0, b.high, 1e-9)
     }
 }
+
+class RuyiTest {
+    // 2026-11-02 11:13 实测：POST https://mybank.icbc.com.cn/servlet/AsynGetDataServlet  tranCode=A00505（网页同时显示 851.03 / 830.67）
+    private val body = """{"pronoinfo":[{"buyprice":"85103","sellprice":"83067","prodcode":"080020000501","pptxnno":"99990"}],"TranErrorCode":"0","ryinfo":[{"buyGMStep":"100000","productId":"080020000501","buyMinGM":"1000000","regMinGM":"1000000","totalMonth":"12","regAmtStep":"1","jcTXONOFF":"1","productName":"如意金积存","dayType":"3","buyMinAmt":"130000","perMonth":"1","zoneNo":"0","regGMStep":"100000","pptxnno":"99990","dayNum":"5","regMinAmt":"130000","buyAmtStep":"1"}],"TranErrorDisplayMsg":""}"""
+
+    @Test fun parse() {
+        val (buy, sell) = GoldSource.parseRuyi(body)
+        assertEquals(851.03, buy, 1e-9)
+        assertEquals(830.67, sell, 1e-9)
+    }
+
+    @Test fun errorCode() {
+        val r = runCatching { GoldSource.parseRuyi("""{"TranErrorCode":"9","TranErrorDisplayMsg":"x","pronoinfo":[]}""") }
+        assertTrue(r.isFailure)
+    }
+}

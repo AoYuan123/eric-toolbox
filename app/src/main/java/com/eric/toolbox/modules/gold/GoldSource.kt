@@ -76,6 +76,7 @@ object GoldSource {
     private const val EM_URL =
         "https://push2.eastmoney.com/api/qt/ulist.np/get?secids=118.AU9999,118.AUTD&fields=f1,f2,f12,f15,f16,f17,f18,f124"
     private const val SINA_URL = "https://hq.sinajs.cn/list=nf_AU0"
+    private const val ICBC_RY_URL = "https://mybank.icbc.com.cn/servlet/AsynGetDataServlet"
     private const val ICBC_URL = "https://mybank.icbc.com.cn/icbc/newperbank/perbank3/gold/goldaccrual_query_out.jsp"
     const val SGE_QUOTE = "https://www.sge.com.cn/graph/quotations"
     const val SGE_DAILY = "https://www.sge.com.cn/graph/Dailyhq"
@@ -96,7 +97,13 @@ object GoldSource {
             runCatching { parseSina(Http.get(SINA_URL, headers = mapOf("Referer" to "https://finance.sina.com.cn/"), charset = GBK)) }
         }
         val icbc = async { runCatching { parseIcbc(Http.get(ICBC_URL, charset = GBK)) } }
-        val emR = em.await(); val sinaR = sina.await(); val icbcR = icbc.await()
+        // 如意金不在网页 HTML 里，是网页打开后再用这个接口异步取的（11-02 实测）
+        val ry = async {
+            runCatching {
+                parseRuyi(Http.postForm(ICBC_RY_URL, "tranCode=A00505", headers = mapOf("Referer" to ICBC_URL, "X-Requested-With" to "XMLHttpRequest")))
+            }
+        }
+        val emR = em.await(); val sinaR = sina.await(); val icbcR = icbc.await(); val ryR = ry.await()
         val emQ = emR.getOrNull().orEmpty()
         var market = emQ.firstOrNull { it.code == "AU9999" }
         var sgeErr: Throwable? = null
@@ -109,12 +116,19 @@ object GoldSource {
             if (market?.source == SGE_NAME) add("大盘价暂用上金所官网延时行情")
             sgeErr?.let { add("上金所：${it.message ?: "网络错误"}") }
             icbcR.exceptionOrNull()?.let { add("工商银行：${it.message ?: "网络错误"}") }
+            ryR.exceptionOrNull()?.let { add("工行如意金：${it.message ?: "网络错误"}") }
+        }
+        val ryQ = ryR.getOrNull()
+        val bank = when {
+            ryQ == null -> icbcR.getOrNull()
+            icbcR.getOrNull() != null -> icbcR.getOrNull()!!.copy(ryBuy = ryQ.first, rySell = ryQ.second)
+            else -> BankQuote(null, null, null, ryQ.first, ryQ.second, nowMs) // 积存金页面失败时，如意金照样显示
         }
         Snapshot(
             market = market,
             td = emQ.firstOrNull { it.code == "AUTD" },
             futures = sinaR.getOrNull(),
-            bank = icbcR.getOrNull(),
+            bank = bank,
             fetchedAtMs = nowMs,
             errors = errors,
         )
@@ -170,6 +184,26 @@ object GoldSource {
         )
         if (q.jcj == null && q.ryBuy == null) throw java.io.IOException("页面格式变化，未找到价格")
         return q
+    }
+
+    /**
+     * 工行如意金积存：POST /servlet/AsynGetDataServlet，表单 tranCode=A00505（不需要登录）→
+     * {"pronoinfo":[{"buyprice":"85103","sellprice":"83067","prodcode":"080020000501",…}],"TranErrorCode":"0",…}
+     * 价格单位是“分”：85103 = 851.03 元/克（与网页显示核对一致）。返回（积存价, 赎回价）。
+     */
+    fun parseRuyi(body: String): Pair<Double, Double> {
+        val o = JSONObject(body)
+        val err = o.optString("TranErrorCode", "0")
+        if (err != "0") throw java.io.IOException("工行返回错误 $err ${o.optString("TranErrorDisplayMsg")}")
+        val arr = o.optJSONArray("pronoinfo") ?: throw java.io.IOException("未找到如意金价格")
+        for (i in 0 until arr.length()) {
+            val p = arr.optJSONObject(i) ?: continue
+            if (p.optString("prodcode") != "080020000501") continue
+            val buy = p.optString("buyprice").toLongOrNull()?.takeIf { it > 0 }?.div(100.0)
+            val sell = p.optString("sellprice").toLongOrNull()?.takeIf { it > 0 }?.div(100.0)
+            if (buy != null && sell != null) return buy to sell
+        }
+        throw java.io.IOException("未找到如意金价格")
     }
 
     private fun fmt(p: String) = SimpleDateFormat(p, Locale.CHINA).apply { timeZone = BJ }
