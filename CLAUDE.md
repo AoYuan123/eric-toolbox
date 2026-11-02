@@ -3,11 +3,13 @@
 > 这是 Eric（GitHub 账号 AoYuan123）的个人 Android 工具箱 App。用户不写代码，需求用中文口述；
 > 每次改动前**先出界面预览给他确认**，确认后再改代码、发布。所有回答必须基于实测数据，不编造。
 
-## 1. 现状（截至 2026-10-31）
-- 仓库：`AoYuan123/eric-toolbox`（公开）。推送到 `main` → GitHub Actions 自动跑单元测试、编译、签名、发布 Release。
-- 版本号 = `1.0.<Actions 运行序号>`，所以会跳号（编译失败的那次也占号）。
-- 已安装在用户手机上；App 内「我的 › 检查更新」读 GitHub Releases。
+## 1. 现状（截至 2026-11-02）
+- 仓库：`AoYuan123/eric-toolbox`（公开）。推送到 `main` → GitHub Actions 自动跑单元测试、编译、签名、发布 Release，并镜像一份到 Gitee 发行版。
+- 版本号 = `1.0.<Actions 运行序号>`，所以会跳号（编译失败的那次也占号）。当前线上 **v1.0.27**。
+- 已安装在用户手机上；App 内「百宝箱设置 › 检查更新」**优先读 Gitee Releases**，不通再退回 GitHub（国内直连 GitHub 常常下不动）。
+- 模块：实时金价、网盘搜索（juicePans）、在线影视、日期计算、临床试验监控。
 - 界面预览（Design 画布）：https://claude.ai/artifact/L1dDVkCVJGMsTHHB2FNfUH
+  - 这个画布是 10-31 的状态，**还没有网盘搜索和在线影视**两个模块；这两块目前只靠真机看。
   - 上排：首页 / 记录 / 我的 / 后台保活 / 锁屏通知示例；下排：实时金价 / 我的积存金 / 我的如意金积存 / 金价设置。
   - 新需求先改这个画布给用户看，确认后再写代码。
 
@@ -71,6 +73,35 @@ app/src/main/java/com/eric/toolbox/
 app/src/test/.../GoldLogicTest.kt、DateLogicTest.kt、TrialLogicTest.kt   单元测试（含实测数据）
 ```
 
+### 另外两个模块（11-01 加入，结构清单里原来没写）
+
+```
+├── modules/pan/           网盘搜索，显示名「juicePans」（id 仍是 pan，别改 id——会清空已存设置）
+│   ├── PanModule.kt       模块入口 + 设置持久化（引擎开关/每盘条数/严格匹配/网盘筛选/熔断状态）
+│   ├── PanScreen.kt       搜索框 + 网盘筛选 + 源开关 + 结果卡片 + 设置面板
+│   ├── core/Aggregator.kt 聚合：去重 → 同名折叠 → 限条 → 四次稳定排序 → 严格匹配剔除（最容易踩坑的文件）
+│   ├── core/TitleNormalizer.kt  标题归一化（去噪词/渠道词/全角转半角），给分组和排序用
+│   ├── core/EngineCircuit.kt    熔断：普通失败连 2 次熔断 30 分钟；风控按 retry-after，可更久
+│   ├── core/Http.kt       独立 HTTP 封装（不共用底座 core/Http.kt）
+│   ├── engine/            6 个源 pansou/haisou/yunso/ataw/panxiaozi/movie + PanSearch 编排
+│   └── verify/            LinkVerifier 链接存活核验
+└── modules/vod/          在线影视。App 是空壳，不内置任何采集站地址，源由用户自己填订阅
+    ├── VodModule.kt       模块入口 + 订阅/画质偏好
+    ├── VodSubsScreen.kt   订阅管理：远程 URL、本地粘贴、导入文件；支持「图种」和 `//` 注释
+    ├── VodScreen.kt       搜索 + 画质门槛（不限/720P+/1080P+/4K）
+    ├── VodDetail.kt       详情、线路（带画质标签）、「跳到最高画质」
+    ├── PlayerActivity.kt  全屏横屏播放，Media3 ExoPlayer
+    └── core/              ConfigParser（TVBox 配置解析）/ SiteClient / EpisodeParser / SearchHub / Quality / TmdbClient
+```
+
+**pan / vod 的边界（改动前务必守住）**
+- `type=3` Spider 一律跳过：它要用 DexClassLoader 把远程 dex 当代码跑，等于让别人在你进程里执行任意程序。影视仓类 App 靠这个吃饭，这里不做。
+- 常见配置是「图种」（图片尾部拼 Base64）+ JSON 里带 `//` 注释，两者 `ConfigParser` 都已支持（v1.0.22）。
+- 明文 http 已在 v1.0.22 放开，理由写在 `AndroidManifest.xml` 的注释里——**不是手误**，别改回 false。
+- 严格匹配的口径：先 `pureTitle` 切掉简介正文，再比关键词；比较时忽略空白与全角差异（站点会把「仙逆」写成「仙 逆」，不忽略就会误杀）。
+- **ataw 的 30 秒是单次 HTTP 请求超时，不是引擎超时**：它串行抓 quark/ali/sharepan 三个搜索页，各请求一次，桌面实测三遍合计 26~27 秒、单次 8~9 秒。`PanSearch` 没有 `withTimeout`。别拿「26 秒逼近 30 秒」当理由去放宽超时。
+- pansou 默认 `src=all`（含 TG 频道源，噪音偏多）；skill 版默认 `plugin`。这个参数目前**没有 UI**，只能改 `SearchOptions` 的默认值。
+
 ### 新增一个模块
 1. `modules/<name>/` 下实现 `ToolModule`（纯工具只要 `Screen()`；要后台监控再给 `BackgroundTask`）。
 2. 在 `ModuleRegistry.all` 加一行。首页卡片、后台调度、运行时段、通知、备份自动复用。
@@ -88,7 +119,7 @@ app/src/test/.../GoldLogicTest.kt、DateLogicTest.kt、TrialLogicTest.kt   单�
 - 工行无公开历史：积存金/如意金分时、昨收、今开由 App 自己记录；日/月/年 K 显示大盘。
 - 历史 K 线里 1000+、1256 是真实价格（2026 年初金价确实过千），只过滤偏离开收盘 ±10% 的异常影线（如 2016-03 最低 181.2）。
 
-## 6. 数据源（2026-10-30/31 实测）
+## 6. 数据源（2026-10-30 ~ 11-02 实测）
 - 10/31 晚，用户网络下东方财富**全部接口**（含实时 push2）都连不上了，疑似被封 IP（App 请求过频 + 测试）。已加上金所官网备用：
   - 上金所延时行情 `POST https://www.sge.com.cn/graph/quotations`，表单 `instid=Au99.99` → `{"times":[...],"data":[...],"delaystr":"2026年11月02日 02:29:58"}`。
     times/data 覆盖整个交易日，**未发生的分钟也被填了值**，只取到 delaystr 时刻；delaystr 的日期是交易日（周五夜盘记作下周一），只用时分秒。延时多久尚未在交易时段实测。
@@ -106,6 +137,11 @@ app/src/test/.../GoldLogicTest.kt、DateLogicTest.kt、TrialLogicTest.kt   单�
     接口：`POST https://mybank.icbc.com.cn/servlet/AsynGetDataServlet`，表单 `tranCode=A00505`，不需要登录，返回 UTF-8 JSON，`pronoinfo[].buyprice/sellprice` 单位是分（85103 = 851.03）。
   - 教训：核对网页数据时要看服务器原始返回（fetch 原文），不要看浏览器执行完 JS 的页面。
 - 这些都是网站公开接口，不是官方 API，改版后要更新 `GoldSource.kt`。
+- 网盘搜索（11-01 从 juicePans skill 移植，Python → Kotlin）：pansou、haisou、yunso（`mode=90001`，`note=ScrName`）、ataw `so.ataw.top`（三个搜索页 quark/ali/sharepan 串行抓 + `/api/v1/public/resources/{id}` 详情）、panxiaozi、movie。
+  - ataw 详情**并发不能超过 2**，且要加 200~800ms 随机间隔，否则很快被风控（代码里已固定）。
+  - pansou 天生慢（桌面经常 47s+），单独给了 45s 超时；`src=all` 含 TG 频道源，噪音多。
+  - 11-02 实测：yunso 1.0s/100 条、ataw 26.0s/24 条；pansou、haisou 均处于风控冷却。
+- 影视源：**不内置任何地址**。用户自己填 TVBox/CatVod 格式订阅（远程 URL 或本地粘贴），`ConfigParser` 解析 `sites/lives/parses`，只吃 `type=0/1` 且 api 是 http(s) 的站，`type=3` 跳过。多数流传配置是全 Spider（例如饭太硬那份：48 个站全 type=3），**订阅成功不等于可看**，只有直播部分能用。
 
 ## 7. 国内下载更新（11-02 定为 Gitee）
 - Gitee 公开仓库 `aos-promise/eric-toolbox-release`（只放安装包）；GitHub Secret `GITEE_TOKEN`（用户自己贴的 Gitee 私人令牌）。

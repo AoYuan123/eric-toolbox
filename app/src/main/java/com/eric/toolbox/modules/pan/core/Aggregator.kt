@@ -187,12 +187,34 @@ object Aggregator {
         return note.substring(0, m.range.first).trim()
     }
 
-    /** 关键词命中数：note 里出现了几个分词。调用前请先用 [pureTitle] 剥掉简介 */
+    /**
+     * 关键词命中数：note 里出现了几个分词。调用前请先用 [pureTitle] 剥掉简介。
+     *
+     * 比较前两边都压掉空白、全角转半角。真实案例：站点把「仙逆」写成「仙 逆」
+     * （中间插空格凑格式），按原文比对命中 0，严格模式下整条被当成无关结果剔掉。
+     * 只忽略空白与全角差异，**不做大小写折叠**——英文关键词的既有行为保持不变。
+     */
     fun kwHits(note: String?, kw: String?): Int {
-        val n = note ?: return 0
-        val tokens = (kw ?: "").split(Regex("""[\s,，]+""")).filter { it.isNotBlank() }
+        val n = compact(note)
+        val tokens = (kw ?: "").split(Regex("""[\s,，]+"""))
+            .map { compact(it) }
+            .filter { it.isNotEmpty() }
         if (tokens.isEmpty()) return 0
         return tokens.count { n.contains(it) }
+    }
+
+    /** 全角转半角 + 去掉所有空白（含不间断空格），只用于关键词匹配 */
+    fun compact(s: String?): String {
+        if (s.isNullOrBlank()) return ""
+        val sb = StringBuilder(s.length)
+        for (ch in s) {
+            when {
+                ch.isWhitespace() || ch == '\u00A0' -> Unit
+                ch.code in 0xFF01..0xFF5E -> sb.append((ch.code - 0xFEE0).toChar())
+                else -> sb.append(ch)
+            }
+        }
+        return sb.toString()
     }
 
     /** yyyy-MM-dd → 20260910，用于比大小；无法解析返回 0 */
