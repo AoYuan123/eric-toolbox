@@ -113,9 +113,9 @@ jobs:
           if [ -z "${RID}" ]; then echo "::warning::Gitee 发行版创建失败"; exit 1; fi
           curl -sS --max-time 600 -X POST "${API}/releases/${RID}/attach_files" \
             -F "access_token=${GITEE_TOKEN}" -F "file=@${APK}" | head -c 300; echo
-          # 每个 Gitee 仓库附件总共不能超过 1GB：只保留最近 15 个发行版
+          # 每个 Gitee 仓库附件总共不能超过 1GB：只保留最近 10 个发行版
           curl -sS --max-time 60 "${API}/releases?access_token=${GITEE_TOKEN}&per_page=100&direction=desc" \
-            | jq -r 'sort_by(.id) | reverse | .[15:] | .[].id' | while read -r OLD; do
+            | jq -r 'sort_by(.id) | reverse | .[10:] | .[].id' | while read -r OLD; do
               curl -sS --max-time 60 -X DELETE "${API}/releases/${OLD}?access_token=${GITEE_TOKEN}" >/dev/null && echo "删除旧发行版 ${OLD}"
             done
 

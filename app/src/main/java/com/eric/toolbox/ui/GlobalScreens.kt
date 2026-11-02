@@ -62,6 +62,7 @@ import com.eric.toolbox.core.Notifier
 import com.eric.toolbox.core.RunWindow
 import com.eric.toolbox.core.Store
 import com.eric.toolbox.core.UpdateInfo
+import com.eric.toolbox.core.ApkInstaller
 import com.eric.toolbox.core.Updater
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
@@ -95,6 +96,8 @@ fun MineScreen(go: (Route) -> Unit) {
     var showLang by remember { mutableStateOf(false) }
     var updateMsg by remember { mutableStateOf("") }
     var update by remember { mutableStateOf<UpdateInfo?>(null) }
+    var dlBusy by remember { mutableStateOf(false) }
+    var dlMsg by remember { mutableStateOf<String?>(null) }
     var testMsg by remember { mutableStateOf("") }
     val keepAliveDone = remember(tick) { keepAliveStatus(ctx).count { it } }
     val windowText = remember(tick, showWindow) { RunWindow.describe(ctx) }
@@ -172,10 +175,40 @@ fun MineScreen(go: (Route) -> Unit) {
             update?.let { u ->
                 if (u.notes.isNotBlank()) Text(u.notes, color = C.Muted, fontSize = 12.sp, modifier = Modifier.padding(vertical = 6.dp))
                 Button(
-                    onClick = { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(u.apkUrl ?: u.pageUrl))) },
+                    enabled = !dlBusy,
+                    onClick = {
+                        val apk = u.apkUrl
+                        val ready = ApkInstaller.downloaded(ctx, u.versionCode)
+                        when {
+                            apk == null -> ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(u.pageUrl)))
+                            !ApkInstaller.canInstall(ctx) -> {
+                                dlMsg = "请在打开的设置页里允许“安装未知应用”，返回后再点一次"
+                                ApkInstaller.openInstallPermissionSettings(ctx)
+                            }
+                            ready != null -> ApkInstaller.install(ctx, ready)
+                            else -> {
+                                dlBusy = true; dlMsg = "正在下载…"
+                                scope.launch {
+                                    try {
+                                        val file = ApkInstaller.download(ctx, apk, u.versionCode) { pct ->
+                                            dlMsg = if (pct >= 0) "正在下载 $pct%" else "正在下载…"
+                                        }
+                                        dlMsg = "下载完成，正在打开安装界面"
+                                        ApkInstaller.install(ctx, file)
+                                    } catch (e: kotlinx.coroutines.CancellationException) {
+                                        throw e
+                                    } catch (e: Exception) {
+                                        dlMsg = "下载失败：${e.message ?: "网络错误"}。可再点一次重试"
+                                    }
+                                    dlBusy = false
+                                }
+                            }
+                        }
+                    },
                     colors = ButtonDefaults.buttonColors(containerColor = C.Gold, contentColor = C.Bg),
                     modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
-                ) { Text("下载并安装 v${u.versionName}") }
+                ) { Text(if (ApkInstaller.downloaded(ctx, u.versionCode) != null && !dlBusy) "安装 v${u.versionName}" else "下载并安装 v${u.versionName}") }
+                dlMsg?.let { Text(it, color = C.Muted, fontSize = 12.sp, modifier = Modifier.padding(bottom = 6.dp)) }
             }
             RowItem("数据来源", "东方财富 · 新浪 · 工商银行")
         }

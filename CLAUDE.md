@@ -45,7 +45,8 @@ app/src/main/java/com/eric/toolbox/
 │   ├── AlertLog.kt        提醒记录（含 system 事件，如“后台曾被系统停止”）
 │   ├── Store.kt           SharedPreferences 分区（global、mod_<id>、alert_log）+ 备份导出/恢复
 │   ├── Http.kt            只允许 https，超时与大小上限
-│   └── Updater.kt         GitHub Releases 检查更新
+│   ├── Updater.kt         检查更新（Gitee 优先，GitHub 兜底）
+│   └── ApkInstaller.kt    App 内下载新版并调起系统安装
 ├── ui/
 │   ├── Theme.kt           配色 C（可切主题：曜石黑/象牙白/墨绿/跟随系统；红涨绿跌可切）+ 通用组件
 │   ├── HomeScreen.kt      首页（运行状态条 + 模块卡片，分“监控类/工具类”）
@@ -104,8 +105,9 @@ app/src/test/.../GoldLogicTest.kt、DateLogicTest.kt、TrialLogicTest.kt   单�
 
 ## 7. 国内下载更新（11-02 定为 Gitee）
 - Gitee 公开仓库 `aos-promise/eric-toolbox-release`（只放安装包）；GitHub Secret `GITEE_TOKEN`（用户自己贴的 Gitee 私人令牌）。
-- CI 最后一步“Mirror release to Gitee”：只在 main 发版时执行、出错不影响 GitHub 发版；空仓库先用 API 建 README；创建发行版 + 上传 APK；只保留最近 15 个发行版（Gitee 每仓库附件总量 1GB）。
-- App `Updater`：先查 Gitee `api/v5/repos/<repo>/releases/latest`，不通再查 GitHub；下载交给手机浏览器打开 APK 链接。
+- CI 最后一步“Mirror release to Gitee”：只在 main 发版时执行、出错不影响 GitHub 发版；空仓库先用 API 建 README；创建发行版 + 上传 APK；只保留最近 10 个发行版（用户 11-02 定）（Gitee 每仓库附件总量 1GB）。
+- App `Updater`：先查 Gitee `api/v5/repos/<repo>/releases/latest`，不通再查 GitHub。
+- `core/ApkInstaller`：App 内下载（自己跟随跳转、只允许 https）→ 校验是本 App 且版本号对 → FileProvider 调起系统安装；首次需允许“安装未知应用”。Gitee 返回的 Content-Type 是 application/zip，所以不能交给浏览器下载（可能存成 .zip）。
 - 11-02 实测：不登录下载 Gitee 发行版附件可行（99MB 附件跳转 foruda.gitee.com 正常下载）。
 - 备选方案记录：阿里云 OSS 自 2024-08-05 起新建 Bucket 用默认域名下载 APK 会被拦截，必须绑定已 ICP 备案的域名。
 
