@@ -163,7 +163,7 @@ fun MineScreen(go: (Route) -> Unit) {
                 scope.launch {
                     updateMsg = try {
                         update = Updater.check()
-                        if (update == null) "已是最新版本" else "发现新版本 v${update!!.versionName}"
+                        if (update == null) "已是最新版本" else "发现新版本 v${update!!.versionName}（${update!!.source}）"
                     } catch (e: Exception) {
                         "检查失败：${e.message ?: "网络错误"}"
                     }

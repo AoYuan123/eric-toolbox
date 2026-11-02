@@ -102,11 +102,14 @@ app/src/test/.../GoldLogicTest.kt、DateLogicTest.kt、TrialLogicTest.kt   单�
 - 工行：`https://mybank.icbc.com.cn/icbc/newperbank/perbank3/gold/goldaccrual_query_out.jsp`（GBK；积存金产品号 080020000521，如意金 080020000501；交易时间工作日 9:10–22:30，每 3 秒更新）
 - 这些都是网站公开接口，不是官方 API，改版后要更新 `GoldSource.kt`。
 
-## 7. 待定事项
-- **国内下载更新**：用户在国内下载 GitHub Release 需要 VPN。已给出方案，用户尚未决定：
-  1. （推荐）CI 同步上传到 Gitee 发行版，App 优先从 Gitee 检查和下载。需用户注册 Gitee、建公开仓库（可能需实名）、自己把 Gitee 私人令牌填进 GitHub Secrets。**未验证** Gitee 附件下载是否需要登录，设置后要先实测。
-  2. 国内云存储（阿里云/腾讯云），更稳但要开通账号、少量费用、可能涉及域名备案。
-  3. 维持现状：电脑开 VPN 下载后传到手机。
+## 7. 国内下载更新（11-02 定为 Gitee）
+- Gitee 公开仓库 `aos-promise/eric-toolbox-release`（只放安装包）；GitHub Secret `GITEE_TOKEN`（用户自己贴的 Gitee 私人令牌）。
+- CI 最后一步“Mirror release to Gitee”：只在 main 发版时执行、出错不影响 GitHub 发版；空仓库先用 API 建 README；创建发行版 + 上传 APK；只保留最近 15 个发行版（Gitee 每仓库附件总量 1GB）。
+- App `Updater`：先查 Gitee `api/v5/repos/<repo>/releases/latest`，不通再查 GitHub；下载交给手机浏览器打开 APK 链接。
+- 11-02 实测：不登录下载 Gitee 发行版附件可行（99MB 附件跳转 foruda.gitee.com 正常下载）。
+- 备选方案记录：阿里云 OSS 自 2024-08-05 起新建 Bucket 用默认域名下载 APK 会被拦截，必须绑定已 ICP 备案的域名。
+
+## 8. 待定事项
 - 语言目前只有简体中文。
 - 临床试验标题显示 ClinicalTrials.gov 英文原文（预览里的中文标题是我概括的，App 不做翻译）。
 - 真机上的显示效果、后台保活时长、手势体验都还没有用户反馈。

@@ -18,6 +18,7 @@ android {
         versionCode = ciRun
         versionName = "1.0.$ciRun"
         buildConfigField("String", "UPDATE_REPO", "\"AoYuan123/eric-toolbox\"")
+        buildConfigField("String", "GITEE_REPO", "\"aos-promise/eric-toolbox-release\"")
     }
 
     signingConfigs {
