@@ -171,4 +171,57 @@ class AggregatorTest {
         val out = Aggregator.aggregate(listOf(item), "一年级 毕业季", SearchOptions())
         assertEquals(1, out.size)
     }
+
+    // ------------------------------------------------ 空白/全角差异不该算「没命中」
+
+    // 真实事故（2026-11-02 实测）：站点把「仙逆」写成「仙 逆」，
+    // 按原文匹配命中 0，严格模式下整条被剔掉，而它其实是有效资源。
+    private val spacedItem = PanItem(
+        cloud = "baidu",
+        url = "https://pan.baidu.com/s/1GkY3b6EZp5XT7R9Uf0EjoQ",
+        note = "仙 逆",
+    )
+
+    @Test
+    fun 标题中间插了空格也能命中() {
+        val out = Aggregator.aggregate(listOf(spacedItem), "仙逆", SearchOptions())
+        assertEquals(1, out.size)
+    }
+
+    @Test
+    fun 关键词中间带空格也能命中紧凑标题() {
+        val item = PanItem(
+            cloud = "quark",
+            url = "https://pan.quark.cn/s/xn3",
+            note = "仙逆年番3 (2026) 4K",
+        )
+        assertEquals(1, Aggregator.aggregate(listOf(item), "仙 逆", SearchOptions()).size)
+    }
+
+    @Test
+    fun 全角字母与半角关键词互通() {
+        // 站点常写全角「４Ｋ」，用户搜「4K」
+        val item = PanItem(
+            cloud = "quark",
+            url = "https://pan.quark.cn/s/fw",
+            note = "仙逆 年番 ４Ｋ 臻彩",
+        )
+        assertEquals(1, Aggregator.kwHits(Aggregator.pureTitle(item.note), "4K"))
+    }
+
+    @Test
+    fun 不间断空格也当空白处理() {
+        // 站点从网页抓下来常带 &nbsp;（U+00A0）
+        assertEquals(1, Aggregator.kwHits("仙\u00A0逆", "仙逆"))
+    }
+
+    @Test
+    fun 紧凑化不会把无关结果捞回来() {
+        val noise = PanItem(
+            cloud = "quark",
+            url = "https://pan.quark.cn/s/n1",
+            note = "恶作剧之吻 全2季",
+        )
+        assertEquals(0, Aggregator.aggregate(listOf(noise), "仙逆", SearchOptions()).size)
+    }
 }
