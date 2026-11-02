@@ -70,6 +70,7 @@ private sealed interface TPage {
     data class SubPage(val id: Long) : TPage
     data class Detail(val nct: String) : TPage
     data class Add(val editId: Long? = null, val presetNct: String? = null) : TPage
+    data object Trans : TPage
 }
 
 @Composable
@@ -83,6 +84,7 @@ fun TrialRoot(onBack: () -> Unit) {
         is TPage.SubPage -> SubScreen(p.id, back, go)
         is TPage.Detail -> DetailScreen(p.nct, back, go)
         is TPage.Add -> AddScreen(p.editId, p.presetNct, back) { stack = listOf(TPage.Main) }
+        TPage.Trans -> TransScreen(back)
     }
 }
 
@@ -116,6 +118,9 @@ private fun Note(text: String, color: Color = C.Muted) {
 
 @Composable
 private fun TrialCard(t: Trial, onClick: () -> Unit, onLongClick: (() -> Unit)? = null, extra: String? = null) {
+    val ctx = LocalContext.current
+    val v by TrialModule.version.collectAsState()
+    val zh = remember(t.title, v) { Translator.cached(ctx, t.title) }
     Column(
         Modifier.fillMaxWidth().background(C.Surface, RoundedCornerShape(16.dp))
             .combinedClickable(onClick = onClick, onLongClick = onLongClick)
@@ -123,10 +128,15 @@ private fun TrialCard(t: Trial, onClick: () -> Unit, onLongClick: (() -> Unit)? 
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(t.nct, color = C.Gold, fontSize = 13.sp, fontFamily = Mono, modifier = Modifier.weight(1f))
+            NctLink(t.nct, Modifier.weight(1f))
             if (t.lastUpdate.isNotBlank()) Text("官方更新 ${shortDate(t.lastUpdate)}", color = C.Muted, fontSize = 11.sp)
         }
-        Text(t.title, color = C.Text, fontSize = 14.sp, lineHeight = 20.sp)
+        if (zh != null) {
+            Text(zh, color = C.Text, fontSize = 14.sp, lineHeight = 20.sp)
+            Text(t.title, color = C.Muted, fontSize = 11.sp, lineHeight = 16.sp)
+        } else {
+            Text(t.title, color = C.Text, fontSize = 14.sp, lineHeight = 20.sp)
+        }
         if (extra != null) Text(extra, color = C.Gold, fontSize = 13.sp)
         FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             val (fg, bg) = statusColors(t.status)
@@ -136,6 +146,19 @@ private fun TrialCard(t: Trial, onClick: () -> Unit, onLongClick: (() -> Unit)? 
             Text(t.sponsor, color = C.Muted, fontSize = 12.sp, modifier = Modifier.align(Alignment.CenterVertically))
         }
     }
+}
+
+/** NCT 编号：点一下直接在浏览器打开 ClinicalTrials.gov 原文页。 */
+@Composable
+private fun NctLink(nct: String, modifier: Modifier = Modifier) {
+    val ctx = LocalContext.current
+    Text(
+        "$nct ↗", color = C.Gold, fontSize = 13.sp, fontFamily = Mono,
+        textDecoration = androidx.compose.ui.text.style.TextDecoration.Underline,
+        modifier = modifier.clickable {
+            runCatching { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://clinicaltrials.gov/study/$nct")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+        }.padding(vertical = 2.dp),
+    )
 }
 
 // ======================= 主页 =======================
@@ -238,9 +261,21 @@ private fun TrialMain(onBack: () -> Unit, go: (TPage) -> Unit) {
         Note(
             "会提醒哪些变化：新登记、状态变化、结果发布、阶段变化、关键日期调整（每组可单独勾选）。App 每次检查时与上次记录对比；" +
                 "刚添加关注时只记录现状，不会把已有试验当成“新登记”。提醒只在提醒时段（${RunWindow.describe(ctx)}）推送，" +
-                "时段外发现的变化会在时段开始时补发。试验标题为 ClinicalTrials.gov 原文。",
+                "时段外发现的变化会在时段开始时补发。点 NCT 编号可直接打开 ClinicalTrials.gov 原文。",
         )
         ToggleRow("自动检查", "关闭后只在手动刷新时检查", enabled) { TrialModule.setEnabled(ctx, it) }
+        ListCard {
+            com.eric.toolbox.ui.RowItem(
+                "翻译设置",
+                when {
+                    !Translator.enabled(ctx) -> "已关闭"
+                    !Translator.ready(ctx) -> "未填密钥"
+                    else -> "本月已用 ${Translator.usedThisMonth(ctx) / 10000.0} 万字符".replace(".0 万", " 万")
+                },
+                sub = "百度翻译 · 把英文标题、终点翻成中文",
+                onClick = { go(TPage.Trans) },
+            )
+        }
     }
 }
 
@@ -350,16 +385,31 @@ private fun DetailScreen(nct: String, back: () -> Unit, go: (TPage) -> Unit) {
             }
         }
     }
+    var trTick by remember { mutableStateOf(0) }
+    LaunchedEffect(d) {
+        val x = d ?: return@LaunchedEffect
+        if (Translator.ready(ctx)) {
+            runCatching { Translator.translateMissing(ctx, listOf(x.trial.title, x.officialTitle) + x.primaryOutcomes + x.conditions.take(3)) }
+            trTick++
+        }
+    }
+    fun zh(en: String): String? = if (trTick >= 0) Translator.cached(ctx, en) else null
     val history = remember { TrialModule.changes(ctx).filter { it.nct == nct } }
     Screen {
         TopBar(nct, back)
+        NctLink(nct)
         val x = d
         if (x == null) {
             Note(err ?: "加载中…", if (err != null) C.Warn else C.Muted)
         } else {
             val t = x.trial
-            Text(t.title, color = C.Text, fontSize = 17.sp, fontWeight = FontWeight.Bold, lineHeight = 24.sp)
-            if (x.officialTitle.isNotBlank() && x.officialTitle != t.title) Text(x.officialTitle, color = C.Muted, fontSize = 12.sp, lineHeight = 18.sp)
+            val titleZh = zh(t.title)
+            Text(titleZh ?: t.title, color = C.Text, fontSize = 17.sp, fontWeight = FontWeight.Bold, lineHeight = 24.sp)
+            if (titleZh != null) Text(t.title, color = C.Muted, fontSize = 12.sp, lineHeight = 18.sp)
+            if (x.officialTitle.isNotBlank() && x.officialTitle != t.title) {
+                zh(x.officialTitle)?.let { Text("正式标题：$it", color = C.Text, fontSize = 13.sp, lineHeight = 19.sp) }
+                Text(x.officialTitle, color = C.Muted, fontSize = 12.sp, lineHeight = 18.sp)
+            }
             FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 val (fg, bg) = statusColors(t.status)
                 Pill(TrialLogic.statusCn(t.status), fg, bg)
@@ -371,8 +421,8 @@ private fun DetailScreen(nct: String, back: () -> Unit, go: (TPage) -> Unit) {
                 KV("计划入组", t.enrollment?.let { "$it 人" } ?: "--")
                 KV("开始日期", x.start.ifBlank { "--" })
                 KV("主要完成日期", t.primaryCompletion.ifBlank { "--" })
-                KV("主要终点", x.primaryOutcomes.joinToString("；").ifBlank { "--" })
-                KV("适应症", x.conditions.take(3).joinToString("；").ifBlank { "--" } + if (x.conditions.size > 3) " 等 ${x.conditions.size} 项" else "")
+                KV("主要终点", x.primaryOutcomes.joinToString("；") { o -> zh(o)?.let { "$it（$o）" } ?: o }.ifBlank { "--" })
+                KV("适应症", x.conditions.take(3).joinToString("；") { c -> zh(c)?.let { "$it（$c）" } ?: c }.ifBlank { "--" } + if (x.conditions.size > 3) " 等 ${x.conditions.size} 项" else "")
                 KV("研究地点", x.countries.entries.take(4).joinToString("、") { "${it.key} ${it.value} 家" }.ifBlank { "--" } + if (x.countries.size > 4) " 等" else "")
                 KV("首次公布 / 官方更新", "${t.firstPost} / ${t.lastUpdate}")
                 KV("是否已有结果", if (t.hasResults) "是" else "否")
@@ -508,5 +558,68 @@ private fun AddScreen(editId: Long?, presetNct: String?, back: () -> Unit, done:
                 }
             }
         }
+    }
+}
+
+// ======================= 翻译设置 =======================
+
+@Composable
+private fun TransScreen(back: () -> Unit) {
+    val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var tick by remember { mutableStateOf(0) }
+    var appId by remember { mutableStateOf(Translator.appId(ctx)) }
+    var key by remember { mutableStateOf("") }
+    var capText by remember { mutableStateOf((Translator.cap(ctx) / 10000).toString()) }
+    var msg by remember { mutableStateOf<String?>(null) }
+    var busy by remember { mutableStateOf(false) }
+    val used = remember(tick) { Translator.usedThisMonth(ctx) }
+    val enabled = remember(tick) { Translator.enabled(ctx) }
+    val err = remember(tick) { Translator.lastError(ctx) }
+
+    Screen {
+        TopBar("翻译设置", back)
+        ListCard {
+            ToggleRow("把标题、终点翻译成中文", "英文原文显示在中文下方", enabled) { Translator.setEnabled(ctx, it); tick++ }
+        }
+        SectionLabel("翻译服务：百度翻译开放平台（通用文本翻译）")
+        ListCard {
+            Column(Modifier.padding(vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(appId, { appId = it.trim() }, label = { Text("APP ID") }, singleLine = true, modifier = Modifier.fillMaxWidth(),
+                    placeholder = { Text("百度翻译控制台 › 开发者信息") })
+                OutlinedTextField(
+                    key, { key = it }, singleLine = true, modifier = Modifier.fillMaxWidth(),
+                    label = { Text(if (Translator.hasKey(ctx)) "密钥（已保存，重新填写可替换）" else "密钥") },
+                    visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                    placeholder = { Text("只保存在本机，备份导出时不包含") },
+                )
+                OutlinedTextField(
+                    capText, { capText = it.filter(Char::isDigit).take(3) }, singleLine = true, modifier = Modifier.fillMaxWidth(),
+                    label = { Text("每月上限（万字符）") },
+                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number),
+                )
+                Text("保存", color = C.Gold, fontSize = 14.sp, modifier = Modifier.clickable {
+                    Translator.setCredentials(ctx, appId, key.ifBlank { null })
+                    capText.toIntOrNull()?.let { Translator.setCap(ctx, it * 10000) }
+                    key = ""; tick++; msg = "已保存"
+                    TrialModule.translateTitlesAsync(ctx)
+                }.padding(vertical = 6.dp))
+            }
+        }
+        Box(
+            Modifier.fillMaxWidth().heightIn(min = 46.dp).border(1.dp, C.Line, RoundedCornerShape(12.dp)).clickable(enabled = !busy) {
+                busy = true; msg = "正在翻译…"
+                scope.launch { msg = Translator.test(ctx); busy = false; tick++ }
+            },
+            contentAlignment = Alignment.Center,
+        ) { Text("测试一下（翻译一条示例标题）", color = C.Text, fontSize = 14.sp) }
+        msg?.let { Text(it, color = C.Muted, fontSize = 12.sp, lineHeight = 18.sp, modifier = Modifier.padding(horizontal = 4.dp)) }
+        err?.let { Note("上次翻译出错：$it", C.Warn) }
+        Note(
+            "· 本月已用约 ${used} 字符（App 自己统计），上限 ${Translator.cap(ctx)} 字符；到上限就暂停翻译、只显示英文，下月自动恢复。\n" +
+                "· 百度官方（11-02 定价页）：个人认证的高级版每月 100 万字符免费，超出按 49 元/百万字符计费。默认上限 80 万，留了余量。\n" +
+                "· 每个标题只翻译一次，结果存在手机上；之后只翻新出现的试验。\n" +
+                "· 没填密钥、额度到上限或翻译出错时，自动显示英文，不影响监控和提醒。",
+        )
     }
 }

@@ -18,6 +18,10 @@ import com.eric.toolbox.core.RunWindow
 import com.eric.toolbox.core.Store
 import com.eric.toolbox.core.ToolModule
 import com.eric.toolbox.ui.C
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.sync.Mutex
@@ -46,10 +50,24 @@ object TrialModule : ToolModule {
     private val CHECK_HOURS = listOf(9, 18)
     private const val RETRY_MS = 15 * 60_000L
 
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
     private val _version = MutableStateFlow(0)
     /** 数据变化时递增，界面据此刷新。 */
     val version: StateFlow<Int> = _version
     private fun bump() { _version.value++ }
+
+    /** 把各组关注里还没翻译的标题翻成中文（后台进行，完成后刷新界面）。 */
+    suspend fun translateTitles(ctx: Context) {
+        if (!Translator.ready(ctx)) return
+        val titles = subs(ctx).flatMap { s -> snapshot(ctx, s.id)?.values.orEmpty().filter { it.nct !in s.excluded }.map { it.title } }
+        if (Translator.translateMissing(ctx, titles) > 0) bump()
+    }
+
+    fun translateTitlesAsync(ctx: Context) {
+        val app = ctx.applicationContext
+        scope.launch { runCatching { translateTitles(app) }; bump() }
+    }
 
     fun prefs(ctx: Context) = Store.module(ctx, id)
 
@@ -160,6 +178,7 @@ object TrialModule : ToolModule {
     fun saveBaseline(ctx: Context, s: Sub, r: SearchResult) {
         saveSnapshot(ctx, s.id, r.trials)
         upsertSub(ctx, s.copy(total = r.total, lastCheck = System.currentTimeMillis(), lastError = null))
+        translateTitlesAsync(ctx)
     }
 
     /** 检查所有关注；返回失败的组数。force=手动刷新。 */
@@ -187,6 +206,8 @@ object TrialModule : ToolModule {
         val p = prefs(ctx).edit().putLong("last_run", now)
         p.putLong("next_check", if (failed > 0) now + RETRY_MS else nextSlot(now))
         p.apply()
+        // 先翻译新标题，提醒里就能用中文
+        runCatching { translateTitles(ctx) }
         for ((s, ch) in found) if (ch.isNotEmpty()) queueOrNotify(ctx, s, ch)
         bump()
         failed
@@ -198,15 +219,18 @@ object TrialModule : ToolModule {
         if (i >= 0) { list[i] = s; saveSubs(ctx, list) }
     }
 
-    private fun summary(s: Sub, ch: List<Change>): Pair<String, String> {
+    private fun summary(ctx: Context, s: Sub, ch: List<Change>): Pair<String, String> {
         val title = "临床试验：${TrialLogic.title(s)} 有 ${ch.size} 项变化"
-        val body = ch.take(4).joinToString("\n") { "${it.nct} ${it.detail}" } + if (ch.size > 4) "\n…共 ${ch.size} 项，打开 App 查看" else ""
+        val body = ch.take(4).joinToString("\n") { c ->
+            val zh = Translator.cached(ctx, c.title)
+            "${c.nct} ${c.detail}" + (zh?.let { "\n  $it" } ?: "")
+        } + if (ch.size > 4) "\n…共 ${ch.size} 项，打开 App 查看" else ""
         return title to body
     }
 
     /** 在提醒时段内直接推送，否则先存起来，等时段开始再推送。 */
     private fun queueOrNotify(ctx: Context, s: Sub, ch: List<Change>) {
-        val (title, body) = summary(s, ch)
+        val (title, body) = summary(ctx, s, ch)
         if (RunWindow.isOpen(ctx)) {
             Notifier.alert(ctx, id, title, body)
         } else {

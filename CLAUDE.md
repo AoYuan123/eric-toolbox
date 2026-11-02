@@ -61,7 +61,8 @@ app/src/main/java/com/eric/toolbox/
 ├── modules/trials/        临床试验监控（ClinicalTrials.gov API v2）
 │   ├── TrialLogic.kt      检索 URL、解析、变化对比、存储格式（可单测）
 │   ├── TrialModule.kt     关注条件/快照/变化记录存储、每天 9:00 与 18:00 检查、失败 15 分钟重试、时段外延后推送
-│   └── TrialScreens.kt    主页、关注详情（长按排除）、试验详情、添加/编辑关注（先预览再保存）
+│   ├── TrialScreens.kt    主页、关注详情（长按排除）、试验详情、添加/编辑关注（先预览再保存）、翻译设置；NCT 编号可点开原文
+│   └── Translator.kt      百度翻译通用文本翻译：签名 MD5(appid+q+salt+密钥)、批量、本地缓存、每月用量上限（默认 80 万）
 └── modules/gold/          实时金价模块
     ├── GoldLogic.kt       纯逻辑（可单测）：档位、上涨提醒、智能间隔、交易时段、持仓移动加权成本
     ├── GoldSource.kt      行情源与解析（东方财富、新浪、工行 HTML、K 线）+ 异常值过滤
@@ -156,7 +157,13 @@ app/src/test/.../GoldLogicTest.kt、DateLogicTest.kt、TrialLogicTest.kt   单�
 - 授权码存在 SharedPreferences "mail_secret"，不在 Store.allNames()，所以不进备份；其他邮件设置存 global（mail_*），可备份。
 - 每个收件人单独发一封；校验 smtp.qq.com 证书主机名。授权码由用户自己在 QQ 邮箱生成并填入。
 
-## 9. 待定事项
+## 9. 临床试验翻译（11-02）
+- 百度翻译开放平台「通用文本翻译」，用户已个人认证并切到**高级版**（官方定价页 11-02：高级版每月 100 万字符免费，超出 49 元/百万字符，用量统计有延迟、超出会欠费）。
+- 用户自己在 App「临床试验 › 翻译设置」填 APP ID + 密钥（存 "trials_secret"，不进备份）。App 统计本月字符数，默认上限 80 万，到上限只显示英文。
+- 标题在检查/保存关注后批量翻译并缓存（trans_cache.json）；详情页打开时翻正式标题、主要终点、前 3 个适应症。
+- 没用「生物医药领域」翻译：它的免费额度当时没在官方页核实。
+
+## 10. 待定事项
 - 语言目前只有简体中文。
-- 临床试验标题显示 ClinicalTrials.gov 英文原文（预览里的中文标题是我概括的，App 不做翻译）。
+- （已完成 11-02）临床试验中文翻译：见下方「临床试验翻译」。
 - 真机上的显示效果、后台保活时长、手势体验都还没有用户反馈。
