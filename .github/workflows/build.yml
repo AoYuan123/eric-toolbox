@@ -11,7 +11,7 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
-    # 只让“编译发版”排队；同步 Gitee 放在单独的任务里，慢了也不挡下一次发版
+    # 发版后由 gitee-sync.yml 单独同步到 Gitee（慢了也不挡下一次发版，失败会定时补传）
     concurrency:
       group: build
       cancel-in-progress: false
@@ -85,75 +85,3 @@ jobs:
           NOTES=$(git log -1 --pretty=%B | head -20)
           gh release create "v${{ steps.apk.outputs.ver }}" "${{ steps.apk.outputs.path }}" \
             --title "v${{ steps.apk.outputs.ver }}" --notes "$NOTES"
-
-  # 同步到 Gitee 发行版，国内不翻墙也能下载更新。只在 main 分支发版时执行；Gitee 出错不影响 GitHub 发版。
-  # GitHub 服务器往 Gitee 上传有时很慢（11-02 两次卡住几十分钟），所以：单独任务、最长 25 分钟、传输停滞就放弃重来。
-  gitee:
-    needs: build
-    if: needs.build.outputs.signed == 'true' && github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-    timeout-minutes: 25
-    concurrency:
-      group: gitee
-      cancel-in-progress: false
-    steps:
-      - uses: actions/checkout@v5
-      - uses: actions/download-artifact@v4
-        with:
-          name: ${{ needs.build.outputs.path }}
-      - name: Mirror release to Gitee
-        continue-on-error: true
-        env:
-          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
-          GITEE_REPO: aos-promise/eric-toolbox-release
-        run: |
-          set -euo pipefail
-          if [ -z "${GITEE_TOKEN}" ]; then echo "没有 GITEE_TOKEN，跳过"; exit 0; fi
-          API="https://gitee.com/api/v5/repos/${GITEE_REPO}"
-          TAG="v${{ needs.build.outputs.ver }}"
-          APK="${{ needs.build.outputs.path }}"
-          # 空仓库没有分支，先建一个 README 作为第一个提交（发行版需要挂在某个提交上）
-          BRANCH=$(curl -sS --max-time 60 "${API}?access_token=${GITEE_TOKEN}" | jq -r '.default_branch // empty')
-          if [ -z "${BRANCH}" ]; then
-            CONTENT=$(printf '# Eric的百宝箱 安装包\n\n这里只放 Eric的百宝箱 的安装包（由 GitHub Actions 自动同步），供国内下载更新。\n' | base64 -w0)
-            curl -sS --max-time 60 -X POST "${API}/contents/README.md" \
-              -F "access_token=${GITEE_TOKEN}" -F "content=${CONTENT}" -F "message=init" | head -c 300; echo
-            BRANCH=$(curl -sS --max-time 60 "${API}?access_token=${GITEE_TOKEN}" | jq -r '.default_branch // "master"')
-          fi
-          echo "Gitee 分支：${BRANCH}"
-          NOTES=$(git log -1 --pretty=%B | head -20)
-          REL=$(curl -sS --max-time 60 -X POST "${API}/releases" \
-            -F "access_token=${GITEE_TOKEN}" -F "tag_name=${TAG}" -F "name=${TAG}" \
-            -F "body=${NOTES}" -F "target_commitish=${BRANCH}")
-          echo "${REL}" | head -c 300; echo
-          RID=$(echo "${REL}" | jq -r '.id // empty')
-          if [ -z "${RID}" ]; then echo "::warning::Gitee 发行版创建失败"; exit 1; fi
-          # 上传安装包：GitHub 到 Gitee 偶尔很慢（11-02 曾 10 分钟没传上），失败重试 1 次
-          OK=""
-          for TRY in 1 2; do
-            RES=$(curl -sS --max-time 480 --speed-time 60 --speed-limit 20000 -X POST "${API}/releases/${RID}/attach_files" \
-              -F "access_token=${GITEE_TOKEN}" -F "file=@${APK}" || true)
-            echo "第 ${TRY} 次上传：$(echo "${RES}" | head -c 200)"
-            if echo "${RES}" | jq -e '.name' >/dev/null 2>&1; then OK=1; break; fi
-            sleep 20
-          done
-          if [ -z "${OK}" ]; then
-            # 传不上就删掉这个空的发行版，免得 App 看到没有安装包的新版本
-            curl -sS --max-time 60 -X DELETE "${API}/releases/${RID}?access_token=${GITEE_TOKEN}" >/dev/null || true
-            curl -sS --max-time 60 -X DELETE "${API}/tags/${TAG}?access_token=${GITEE_TOKEN}" >/dev/null || true
-            echo "::warning::安装包没能传到 Gitee，已删除空发行版；App 会改用 GitHub 检查更新"
-            exit 1
-          fi
-          # 清理以前没传上安装包的空发行版
-          curl -sS --max-time 60 "${API}/releases?access_token=${GITEE_TOKEN}&per_page=100" \
-            | jq -r '.[] | select([.assets[]? | select(.name | endswith(".apk"))] | length == 0) | "\(.id) \(.tag_name)"' \
-            | while read -r EID ETAG; do
-                curl -sS --max-time 60 -X DELETE "${API}/releases/${EID}?access_token=${GITEE_TOKEN}" >/dev/null && echo "删除空发行版 ${ETAG}"
-                curl -sS --max-time 60 -X DELETE "${API}/tags/${ETAG}?access_token=${GITEE_TOKEN}" >/dev/null || true
-              done
-          # 每个 Gitee 仓库附件总共不能超过 1GB：只保留最近 10 个发行版
-          curl -sS --max-time 60 "${API}/releases?access_token=${GITEE_TOKEN}&per_page=100&direction=desc" \
-            | jq -r 'sort_by(.id) | reverse | .[10:] | .[].id' | while read -r OLD; do
-              curl -sS --max-time 60 -X DELETE "${API}/releases/${OLD}?access_token=${GITEE_TOKEN}" >/dev/null && echo "删除旧发行版 ${OLD}"
-            done
-

@@ -1,0 +1,93 @@
+name: Sync release to Gitee
+
+# 把 GitHub 最新正式版同步到 Gitee 发行版，供国内不翻墙下载更新。
+# - 发版完成后自动触发；另外每 2 小时检查一次，之前没传上的会自动补传（GitHub→Gitee 上传偶尔卡住，11-02 晚连续失败过）。
+# - 也可以在 Actions 页面手动运行。
+on:
+  workflow_run:
+    workflows: ["Build APK"]
+    types: [completed]
+  schedule:
+    - cron: "17 */2 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gitee-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Sync
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+          GITEE_REPO: aos-promise/eric-toolbox-release
+        run: |
+          set -uo pipefail
+          if [ -z "${GITEE_TOKEN}" ]; then echo "没有 GITEE_TOKEN，跳过"; exit 0; fi
+          API="https://gitee.com/api/v5/repos/${GITEE_REPO}"
+          REL_JSON=$(gh api "repos/${GITHUB_REPOSITORY}/releases/latest")
+          TAG=$(echo "${REL_JSON}" | jq -r '.tag_name')
+          APK_NAME=$(echo "${REL_JSON}" | jq -r '[.assets[] | select(.name|endswith(".apk"))][0].name')
+          APK_ID=$(echo "${REL_JSON}" | jq -r '[.assets[] | select(.name|endswith(".apk"))][0].id')
+          NOTES=$(echo "${REL_JSON}" | jq -r '.body' | head -20)
+          echo "GitHub 最新：${TAG} ${APK_NAME}"
+          if [ -z "${TAG}" ] || [ "${APK_NAME}" = "null" ]; then echo "GitHub 上没有可同步的版本"; exit 0; fi
+
+          # Gitee 上是否已有这个版本且带安装包
+          GREL=$(curl -sS --max-time 60 "${API}/releases/tags/${TAG}?access_token=${GITEE_TOKEN}" || true)
+          HAS_APK=$(echo "${GREL}" | jq -r '[.assets[]? | select(.name|endswith(".apk"))] | length' 2>/dev/null || echo 0)
+          if [ "${HAS_APK:-0}" -gt 0 ] 2>/dev/null; then echo "Gitee 已有 ${TAG}，无需同步"; exit 0; fi
+
+          gh api -H "Accept: application/octet-stream" "repos/${GITHUB_REPOSITORY}/releases/assets/${APK_ID}" > "${APK_NAME}"
+          ls -l "${APK_NAME}"
+
+          # 空仓库先建 README
+          BRANCH=$(curl -sS --max-time 60 "${API}?access_token=${GITEE_TOKEN}" | jq -r '.default_branch // empty')
+          if [ -z "${BRANCH}" ]; then
+            CONTENT=$(printf '# Eric的百宝箱 安装包\n\n由 GitHub Actions 自动同步，供国内下载更新。\n' | base64 -w0)
+            curl -sS --max-time 60 -X POST "${API}/contents/README.md" -F "access_token=${GITEE_TOKEN}" -F "content=${CONTENT}" -F "message=init" >/dev/null
+            BRANCH=master
+          fi
+
+          RID=$(echo "${GREL}" | jq -r '.id // empty' 2>/dev/null)
+          if [ -z "${RID}" ]; then
+            REL=$(curl -sS --max-time 60 -X POST "${API}/releases" -F "access_token=${GITEE_TOKEN}" \
+              -F "tag_name=${TAG}" -F "name=${TAG}" -F "body=${NOTES}" -F "target_commitish=${BRANCH}")
+            RID=$(echo "${REL}" | jq -r '.id // empty')
+          fi
+          if [ -z "${RID}" ]; then echo "::warning::Gitee 发行版创建失败"; exit 0; fi
+
+          OK=""
+          for TRY in 1 2 3; do
+            # -H "Expect:"：不等服务器的 100-continue 直接发；传输 60 秒低于 20KB/s 视为卡住，放弃重来
+            RES=$(curl -sS --http1.1 -H "Expect:" --max-time 420 --speed-time 60 --speed-limit 20000 \
+              -X POST "${API}/releases/${RID}/attach_files" -F "access_token=${GITEE_TOKEN}" -F "file=@${APK_NAME}" || true)
+            echo "第 ${TRY} 次上传：$(echo "${RES}" | head -c 160)"
+            if echo "${RES}" | jq -e '.name' >/dev/null 2>&1; then OK=1; break; fi
+            sleep 30
+          done
+          if [ -z "${OK}" ]; then
+            curl -sS --max-time 60 -X DELETE "${API}/releases/${RID}?access_token=${GITEE_TOKEN}" >/dev/null || true
+            curl -sS --max-time 60 -X DELETE "${API}/tags/${TAG}?access_token=${GITEE_TOKEN}" >/dev/null || true
+            echo "::warning::${TAG} 没能传到 Gitee，已删除空发行版，2 小时后自动再试；在此之前 App 会改用 GitHub 检查更新"
+            exit 0
+          fi
+
+          # 清理：没有安装包的空发行版；只保留最近 10 个（Gitee 每仓库附件总量 1GB）
+          curl -sS --max-time 60 "${API}/releases?access_token=${GITEE_TOKEN}&per_page=100" > all.json || true
+          jq -r '.[] | select([.assets[]? | select(.name | endswith(".apk"))] | length == 0) | "\(.id) \(.tag_name)"' all.json 2>/dev/null \
+            | while read -r EID ETAG; do
+                curl -sS --max-time 60 -X DELETE "${API}/releases/${EID}?access_token=${GITEE_TOKEN}" >/dev/null && echo "删除空发行版 ${ETAG}"
+                curl -sS --max-time 60 -X DELETE "${API}/tags/${ETAG}?access_token=${GITEE_TOKEN}" >/dev/null || true
+              done
+          jq -r 'sort_by(.id) | reverse | .[10:] | .[].id' all.json 2>/dev/null | while read -r OLD; do
+            curl -sS --max-time 60 -X DELETE "${API}/releases/${OLD}?access_token=${GITEE_TOKEN}" >/dev/null && echo "删除旧发行版 ${OLD}"
+          done
+          echo "已同步 ${TAG} 到 Gitee"
