@@ -124,6 +124,11 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge(statusBarStyle = style, navigationBarStyle = style)
     }
 
+    override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean {
+        if (com.eric.toolbox.core.KeyHooks.handler?.invoke(event) == true) return true
+        return super.dispatchKeyEvent(event)
+    }
+
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
         ThemeManager.apply(this)

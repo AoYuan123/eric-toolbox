@@ -100,6 +100,26 @@ app/src/test/.../GoldLogicTest.kt、DateLogicTest.kt、TrialLogicTest.kt   单�
     └── core/SiteProbe.kt  连通性探测（三态）+ 域名规范化
 ```
 
+### 读书模块（11-07 第一批，用户确认预览后开发）
+```
+└── modules/read/          读书（id=read，工具类）
+    ├── ReadLogic.kt       纯逻辑：Gutendex / Standard Ebooks 网页 / Open Library 解析、合并去重、TXT 分章与 GBK 识别、阅读时间估算
+    ├── Epub.kt            EPUB2/3 解析（container→OPF→spine，nav 或 NCX 目录，封面）；书内路径规范化，越界条目丢弃；XML 防 XXE
+    ├── BookContent.kt     阅读器统一接口（EPUB / TXT），章节纯文本缓存、全文搜索
+    ├── ReaderHtml.kt      ReadSettings + 把章节包装成阅读页：删书里的 script/on*，注入样式（4 主题）和翻页脚本（CSS 多栏横向分页 / 上下滚动）
+    ├── ReaderScreen.kt    阅读器：WebView 只从 https://book.local/ 读书内资源，其他网络请求全部拦截；目录/书签/搜索/排版/进度条；音量键（core/KeyHooks + MainActivity.dispatchKeyEvent）
+    ├── Library.kt         书架 files/read/shelf.json + 书文件 files/read/books/<id>/（不进备份）；下载（https、跟随跳转、校验 PK 头并能解析）、导入
+    ├── ReadScreens.kt     书架首页、搜索、详情下载、古籍（WebView 打开 http://read.nlc.cn/thematDataSearch/toGujiIndex）
+    └── ReadModule.kt      入口、页面栈、ReadPrefs（排版/读速/最近搜索，存 mod_read，进备份）
+```
+- 11-07 国内实测：Gutendex 有时 45 秒以上不返回（搜索超时给 40 秒）；Gutenberg 无插图 EPUB 0.6MB 约 8 秒、带插图 24.9MB 约 35 秒；
+  Standard Ebooks 完整 OPDS 要会员（401），网页搜索公开，下载链接必须加 `?source=download`，否则返回“感谢下载”HTML；
+  Open Library 借阅要登录 IA 账号，App 只跳网页；国图古籍库无公开接口，只支持 http，免登录。
+- LibriVox：`https://librivox.org/api/feed/audiobooks/?title=^…&format=json&extended=1`，`url_text_source` 指向 Gutenberg 书号可精确配对；
+  音频在 archive.org，国内实测首字节 24 秒、第二次失败——第三批做“先下载章节再听”。
+- 待做：第二批 点词查释义（离线 ECDICT）、整句翻译（复用百度翻译额度）、生词本、划线笔记导出；第三批 机器朗读（系统 TTS，句子高亮、后台、定时）+ LibriVox。
+- 预览画布：读书模块 8 个画板（ReadHome/ReadSearch/ReadDetail/Reader/ReadStyle/ReadListen/ReadVocab/ReadGuji）。
+
 **zlib 的边界（改动前务必守住）**
 - **不做内置 WebView**：站点前置 Cloudflare 人机校验（`Checking your browser`），WebView 里基本过不去；一律 `Intent.ACTION_VIEW` 交给系统浏览器，顺带走系统代理。
 - **不做账号登录**：Z-Library 下载必须登录，但账号密码只能留在浏览器里，App 一个字都不收。

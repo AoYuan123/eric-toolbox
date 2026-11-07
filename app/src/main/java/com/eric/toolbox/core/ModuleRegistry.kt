@@ -4,6 +4,7 @@ import android.content.Context
 import com.eric.toolbox.modules.datecalc.DateCalcModule
 import com.eric.toolbox.modules.gold.GoldModule
 import com.eric.toolbox.modules.pan.PanModule
+import com.eric.toolbox.modules.read.ReadModule
 import com.eric.toolbox.modules.trials.TrialModule
 import com.eric.toolbox.modules.vod.VodModule
 import com.eric.toolbox.modules.zlib.ZlibModule
@@ -16,6 +17,7 @@ object ModuleRegistry {
         GoldModule,
         TrialModule,
         DateCalcModule,
+        ReadModule,
         PanModule,
         VodModule,
         ZlibModule,
