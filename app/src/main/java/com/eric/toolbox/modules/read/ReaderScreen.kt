@@ -103,6 +103,9 @@ fun ReaderScreen(bookId: String, onBack: () -> Unit) {
     val pending = remember { doubleArrayOf(0.0) }
     val pendingFind = remember { arrayOf<Pair<String, Int>?>(null) }
     val webRef = remember { arrayOf<WebView?>(null) }
+    // 当前章节包装好的阅读页：WebView 请求 https://book.local/<章节路径>?__r=<序号> 时由拦截器直接返回
+    val pageHtml = remember { arrayOf<String?>(null) }
+    val pageSeq = remember { intArrayOf(0) }
     var pick by remember { mutableStateOf<Pick?>(null) }
     var openHl by remember { mutableStateOf<String?>(null) }
     val pendingHl = remember { arrayOf<String?>(null) }
@@ -127,8 +130,12 @@ fun ReaderScreen(bookId: String, onBack: () -> Unit) {
         val cc = content ?: return
         val idx = i.coerceIn(0, cc.chapterCount - 1)
         chapter = idx; pending[0] = at
-        val html = ReaderHtml.wrap(cc.chapterHtml(idx), rs, curTheme())
-        webRef[0]?.loadDataWithBaseURL("https://book.local/" + cc.chapterPath(idx), html, "text/html", "utf-8", null)
+        pageHtml[0] = ReaderHtml.wrap(cc.chapterHtml(idx), rs, curTheme())
+        pageSeq[0]++
+        // 11-07 真机：loadDataWithBaseURL 在部分 WebView 上会先走 data: 地址，被下面的外链拦截挡住显示“网页无法打开”。
+        // 改为直接加载书内虚拟地址，由拦截器返回页面内容。
+        val path = cc.chapterPath(idx).split('/').joinToString("/") { android.net.Uri.encode(it) }
+        webRef[0]?.loadUrl("https://book.local/$path?__r=${pageSeq[0]}")
     }
     fun js(code: String) = webRef[0]?.evaluateJavascript(code, null)
     fun saveProgress() {
@@ -257,10 +264,17 @@ fun ReaderScreen(bookId: String, onBack: () -> Unit) {
                             }.let {}
                         }, "R")
                         webViewClient = object : WebViewClient() {
-                            override fun shouldInterceptRequest(view: WebView, req: WebResourceRequest): WebResourceResponse {
+                            override fun shouldInterceptRequest(view: WebView, req: WebResourceRequest): WebResourceResponse? {
                                 val u = req.url
+                                val scheme = u.scheme ?: ""
+                                // data:/about:/blob: 等是 WebView 自己的地址，交给它处理；只拦 http(s) 外链
+                                if (scheme != "http" && scheme != "https") return null
                                 if (u.host == "book.local") {
                                     val path = (u.path ?: "").trimStart('/')
+                                    if (u.getQueryParameter("__r") != null) {
+                                        val h = pageHtml[0] ?: ""
+                                        return WebResourceResponse("text/html", "utf-8", 200, "OK", mapOf("Cache-Control" to "no-store"), ByteArrayInputStream(h.toByteArray(Charsets.UTF_8)))
+                                    }
                                     val data = content?.resource(path)
                                     if (data != null) return WebResourceResponse(content!!.mime(path), null, ByteArrayInputStream(data))
                                 }
