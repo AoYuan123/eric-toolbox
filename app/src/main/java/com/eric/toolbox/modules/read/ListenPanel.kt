@@ -146,7 +146,7 @@ private fun TtsPart(book: Library.Book, readerChapter: Int, onStartHere: () -> U
             modifier = Modifier.clickable { runCatching { Listen.startTts(ctx, book, book.listenChapter, book.listenSentence) }.onFailure { Listen.message = "打不开：${it.message}" } }.padding(vertical = 6.dp))
     }
     Text("语速", color = C.Muted, fontSize = 13.sp)
-    Chips(listOf(0.8f, 1.0f, 1.25f, 1.5f, 2.0f, 3.0f).map { it.toString() to "${it}×" }, Listen.speed.toString()) { Listen.setSpeed(it.toFloat()) }
+    Chips(listOf(0.8f, 1.0f, 1.25f, 1.5f, 2.0f, 3.0f).map { it.toString() to "${it}×" }, Listen.speed.toString()) { Listen.changeSpeed(it.toFloat()) }
     Text("定时关闭", color = C.Muted, fontSize = 13.sp)
     Chips(listOf("0" to "关", "15" to "15 分钟", "30" to "30 分钟", "60" to "60 分钟", "-1" to "读完本章"), sleepKey().let { if (it == "on") "" else it }) { Listen.setSleep(it.toInt()) }
     if (Listen.sleepAt > 0) Text("将在 ${java.text.SimpleDateFormat("HH:mm", java.util.Locale.CHINA).format(java.util.Date(Listen.sleepAt))} 停止", color = C.Gold, fontSize = 12.sp)
@@ -217,7 +217,7 @@ private fun AudioSections(book: Library.Book, ab: ReadLogic.AudioBook, onChange:
             RoundBtn("+15 秒") { Listen.next() }
         }
         Text("语速", color = C.Muted, fontSize = 13.sp)
-        Chips(listOf(0.8f, 1.0f, 1.25f, 1.5f, 2.0f).map { it.toString() to "${it}×" }, Listen.speed.toString()) { Listen.setSpeed(it.toFloat()) }
+        Chips(listOf(0.8f, 1.0f, 1.25f, 1.5f, 2.0f).map { it.toString() to "${it}×" }, Listen.speed.toString()) { Listen.changeSpeed(it.toFloat()) }
         Text("定时关闭", color = C.Muted, fontSize = 13.sp)
         Chips(listOf("0" to "关", "15" to "15 分钟", "30" to "30 分钟", "60" to "60 分钟", "-1" to "听完本段"), sleepKey().let { if (it == "on") "" else it }) { Listen.setSleep(it.toInt()) }
         Text("停止听书", color = C.Muted, fontSize = 13.sp, modifier = Modifier.clickable { Listen.stop() }.padding(vertical = 6.dp))

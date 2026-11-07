@@ -265,7 +265,7 @@ object Listen {
 
     fun toggle() { if (playing) pause() else play() }
 
-    fun setSpeed(v: Float) {
+    fun changeSpeed(v: Float) {
         speed = v
         if (mode == Mode.TTS) { prefs().edit().putFloat("tts_speed", v).apply(); if (playing) speakCurrent() }
         else { prefs().edit().putFloat("audio_speed", v).apply(); player?.setPlaybackSpeed(v) }
