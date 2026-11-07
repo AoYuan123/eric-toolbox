@@ -25,8 +25,10 @@ object Dict {
             f.parentFile?.mkdirs()
             f.parentFile?.listFiles { x -> x.name.startsWith("ecdict-") }?.forEach { it.delete() }
             val tmp = File(f.parentFile, "ecdict.tmp")
-            GZIPInputStream(ctx.assets.open(ASSET)).use { input -> tmp.outputStream().use { input.copyTo(it) } }
-            tmp.renameTo(f)
+            // 打包时 AAPT 会把 assets 里的 .gz 自动解压并去掉后缀（11-07 v1.0.35 实测 APK 里是 assets/ecdict-mini.db），两种都兼容
+            val input = runCatching { ctx.assets.open("ecdict-mini.db") }.getOrNull() ?: GZIPInputStream(ctx.assets.open(ASSET))
+            input.use { i -> tmp.outputStream().use { i.copyTo(it) } }
+            if (!tmp.renameTo(f)) throw java.io.IOException("词典解压失败")
         }
         return SQLiteDatabase.openDatabase(f.path, null, SQLiteDatabase.OPEN_READONLY).also { db = it }
     }
