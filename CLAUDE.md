@@ -132,6 +132,15 @@ app/src/test/.../GoldLogicTest.kt、DateLogicTest.kt、TrialLogicTest.kt   单�
 - 待做：听书真机实测（语音引擎、锁屏续播、耳机按键）。
 - 预览画布：读书模块 8 个画板（ReadHome/ReadSearch/ReadDetail/Reader/ReadStyle/ReadListen/ReadVocab/ReadGuji）。
 
+### 翻译模块（11-07，用户确认预览后开发，v1.0.44）
+```
+└── modules/translate/     翻译（id=translate，工具类）
+    ├── TranslateLogic.kt  方向（自动/中→英/英→中，含汉字即中→英）、单个英文单词识别、历史（最多 30 条去重）、语速 0.5/0.75/1/1.25/1.5/2.0（用户定）
+    └── TranslateModule.kt 界面 + 自带 TextToSpeech：切句后一次性 QUEUE_ADD 排队（句间不停顿），onStart 高亮当前句；开读时暂停听书
+```
+- 翻译走 `Translator.translateText(ctx,text,from,to)`（百度，与临床试验/读书共用 APP ID、缓存和每月上限；非 en→zh 方向缓存键带 `from>to|` 前缀）。
+- 单个英文单词时查 ECDICT 并可「加生词本」（Notes.addWord，书名记作「翻译」）。历史、方向、语速存 mod_translate（进备份）。
+
 **zlib 的边界（改动前务必守住）**
 - **不做内置 WebView**：站点前置 Cloudflare 人机校验（`Checking your browser`），WebView 里基本过不去；一律 `Intent.ACTION_VIEW` 交给系统浏览器，顺带走系统代理。
 - **不做账号登录**：Z-Library 下载必须登录，但账号密码只能留在浏览器里，App 一个字都不收。
