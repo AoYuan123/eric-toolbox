@@ -126,6 +126,9 @@ app/src/test/.../GoldLogicTest.kt、DateLogicTest.kt、TrialLogicTest.kt   单�
   真人朗读用 ExoPlayer 播放已下载的 LibriVox 段（`AudioDownloads` 排队下载、失败重试 3 次，存 files/read/audio/<书id>/）。`ListenService` 前台服务（mediaPlayback）+ MediaSessionCompat（依赖 androidx.media:media:1.7.0）：
   通知/锁屏/耳机控制，拔耳机暂停，暂停时退出前台可划掉。阅读页 `__speak(句子,k,follow)` 按压缩空白后的“第 k 次出现”高亮并自动翻页（Chromium 实测跨标签、第 31 次出现都能定位）；
   用户手动翻页后停止跟随、显示「回到朗读位置」。`stripTags` 改为块级标签→空格、行内标签直接去掉，保证与 `flat()` 文本一致。进度存在 Book.listen*/audio*。
+- 11-07 真机反馈后修复：①loadDataWithBaseURL 在用户手机上先走 data: 地址被外链拦截挡住 → 章节改为 loadUrl("https://book.local/<路径>?__r=n")，拦截器直接返回页面，非 http(s) 一律放行；
+  ②朗读/发音无声：targetSdk≥30 必须在 Manifest 声明 `<queries>` TTS_SERVICE；③左右翻页每页一行：WebView 早期 100vh≈0 且不更新 → 脚本 size() 用 innerHeight 像素设高度与栏宽，阅读区有尺寸后才加载；
+  ④音量键翻页用户不要：默认关，存储键改为 volume_keys2；⑤LibriVox 查不到返回 HTTP 404 + {"error":"Audiobooks could not be found"}，按“没有录音”处理；中文书名不查。
 - 待做：听书真机实测（语音引擎、锁屏续播、耳机按键）。
 - 预览画布：读书模块 8 个画板（ReadHome/ReadSearch/ReadDetail/Reader/ReadStyle/ReadListen/ReadVocab/ReadGuji）。
 

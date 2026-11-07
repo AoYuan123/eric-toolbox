@@ -169,17 +169,27 @@ private fun AudioPart(book: Library.Book) {
     var chosen by remember(book.id) { mutableStateOf<ReadLogic.AudioBook?>(if (Listen.bookId == book.id) Listen.audio else null) }
     LaunchedEffect(book.id) {
         if (list != null) return@LaunchedEffect
+        // 中文书名：LibriVox 是志愿者录的公版书，几乎全是英文，不必去查
+        if (ReadLogic.isCjk(book.title)) { list = emptyList(); return@LaunchedEffect }
         try {
             val all = ReadLogic.parseLibriVox(Http.get(ReadLogic.librivoxUrl(book.title), timeoutMs = 30_000), book.gutenbergId)
             list = all
             if (chosen == null) chosen = all.firstOrNull { it.id == book.audioId }
-        } catch (e: Exception) { err = "没连上 LibriVox：${e.message ?: e.javaClass.simpleName}（境外网站，国内有时连不上）" }
+        } catch (e: Exception) {
+            // 11-07 实测：查不到时 LibriVox 返回 HTTP 404 + {"error":"Audiobooks could not be found"}，这不是网络故障
+            if (e.message == "HTTP 404") list = emptyList()
+            else err = "没连上 LibriVox：${e.message ?: e.javaClass.simpleName}（境外网站，国内有时连不上，可稍后再试）"
+        }
     }
     Text("LibriVox 是志愿者录制的公版书有声书（英文为主）。音频在境外的 archive.org，国内很慢，所以先按段下载到手机再听。", color = C.Muted, fontSize = 12.sp)
     when {
         err != null -> Text(err!!, color = C.Warn, fontSize = 13.sp)
         list == null -> { Text("正在查这本书有没有真人录音…", color = C.Muted, fontSize = 13.sp); LinearProgressIndicator(color = C.Gold, trackColor = C.Line, modifier = Modifier.fillMaxWidth()) }
-        list!!.isEmpty() -> Text(if (book.gutenbergId != null) "LibriVox 上没有这本书（Gutenberg #${book.gutenbergId}）的录音。" else "没找到同名录音（这本书不是从 Gutenberg 下载的，只能按书名找）。", color = C.Muted, fontSize = 13.sp)
+        list!!.isEmpty() -> Text(when {
+            ReadLogic.isCjk(book.title) -> "LibriVox 的真人录音基本都是英文公版书，中文书没有。这本书可以用「机器朗读」听。"
+            book.gutenbergId != null -> "LibriVox 上没有这本书（Gutenberg #${book.gutenbergId}）的真人录音，可以用「机器朗读」听。"
+            else -> "LibriVox 上没找到同名的真人录音（这本书不是从 Gutenberg 下载的，只能按书名找），可以用「机器朗读」听。"
+        }, color = C.Muted, fontSize = 13.sp)
         chosen == null -> {
             Text("找到 ${list!!.size} 个录音版本，选一个：", color = C.Text, fontSize = 14.sp)
             list!!.forEach { ab ->
