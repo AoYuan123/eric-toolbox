@@ -63,6 +63,7 @@ object ReaderHtml {
             img,svg{max-width:100% !important;height:auto;}
             pre,code{white-space:pre-wrap;font-size:0.85em;}
             mark.__hit{background:${c.mark} !important;color:inherit !important;border-radius:2px;}
+            mark.__tts{background:${c.mark} !important;color:inherit !important;border-radius:2px;}
             mark.__hl{background:transparent !important;color:inherit !important;border-bottom:2px solid ${c.link};}
             body{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;}
             ::selection{background:${c.mark};}
@@ -127,6 +128,25 @@ object ReaderHtml {
           window.__unhl=function(id){ document.querySelectorAll('mark.__hl[data-id="'+id+'"]').forEach(function(m){ var p=m.parentNode; while(m.firstChild) p.insertBefore(m.firstChild,m); p.removeChild(m); }); };
           window.__goHl=function(id){ var m=document.querySelector('mark.__hl[data-id="'+id+'"]'); if(!m) return; var rect=m.getBoundingClientRect();
               if(paged){ __go(Math.floor((rect.left+window.scrollX)/W()), false);} else { window.scrollTo(0, rect.top+window.scrollY-80); setTimeout(report,0);} };
+          // 朗读高亮：句子来自原生端（按 stripTags 规则压缩空白），这里把正文同样压缩空白后找“第 k 次出现”，返回是否找到
+          window.__speak=function(t, k, follow){
+            document.querySelectorAll('mark.__tts').forEach(function(m){ var p=m.parentNode; while(m.firstChild) p.insertBefore(m.firstChild,m); p.removeChild(m); p.normalize(); });
+            if(!t) return false;
+            var F=flat(), s=F.s, N='', map=[], sp=false;
+            for(var i=0;i<s.length;i++){ var ch=s[i]; if(/\s|\u00a0/.test(ch)){ if(!sp && N.length){ N+=' '; map.push(i); } sp=true; } else { N+=ch; map.push(i); sp=false; } }
+            var pos=-1, from=0; for(var j=0;j<=k;j++){ pos=N.indexOf(t,from); if(pos<0) break; from=pos+1; }
+            if(pos<0) return false;
+            var a=map[pos], b=map[pos+t.length-1]+1;
+            wrap(F,a,b,'__tts',null);
+            if(follow){ var m=document.querySelector('mark.__tts'); if(m){ var r=m.getBoundingClientRect();
+              if(paged){ var pg=Math.floor((r.left+window.scrollX)/W()); if(pg!==cur()) __go(pg,false); }
+              else if(r.top<0 || r.bottom>window.innerHeight){ window.scrollTo(0, r.top+window.scrollY-window.innerHeight/3); setTimeout(report,0);} } }
+            return true;
+          };
+          window.__firstVisible=function(){ var F=flat(); if(!F.parts.length) return 0;
+            for(var i=0;i<F.parts.length;i++){ var p=F.parts[i]; var r=document.createRange(); r.selectNodeContents(p.n); var rc=r.getBoundingClientRect();
+              if(rc.width>0 && rc.right>0 && rc.left<window.innerWidth && rc.bottom>0 && rc.top<window.innerHeight) { var N=F.s.substring(0,p.a).replace(/[\s\u00a0]+/g,' ').replace(/^ /,''); return N.length; } }
+            return 0; };
           window.__find=function(q, nth){
             q=(q||'').toLowerCase(); if(!q) return false;
             var w=document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null), n, seen=0;

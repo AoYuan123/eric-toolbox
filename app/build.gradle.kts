@@ -79,6 +79,8 @@ dependencies {
     implementation("androidx.media3:media3-exoplayer-dash:$media3")
     implementation("androidx.media3:media3-ui:$media3")
     implementation("io.coil-kt:coil-compose:2.7.0")
+    // 读书 › 听书：通知栏/锁屏播放控制、耳机按键（MediaSessionCompat + MediaStyle）
+    implementation("androidx.media:media:1.7.0")
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20240303")

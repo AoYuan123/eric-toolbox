@@ -72,7 +72,7 @@ import java.util.Calendar
 
 private fun hex(s: String) = Color(android.graphics.Color.parseColor(s))
 
-private enum class Panel { NONE, TOC, MARKS, STYLE, SEARCH, NOTES }
+private enum class Panel { NONE, TOC, MARKS, STYLE, SEARCH, NOTES, LISTEN }
 
 /** 长按取到的词和整句（来自阅读页脚本）。 */
 data class Pick(val word: String, val sentence: String, val occurrence: Int, val y: Double)
@@ -107,6 +107,9 @@ fun ReaderScreen(bookId: String, onBack: () -> Unit) {
     var openHl by remember { mutableStateOf<String?>(null) }
     val pendingHl = remember { arrayOf<String?>(null) }
     val tts = remember { Speaker(ctx) }
+    // 听书同步：follow=朗读时自动翻到正在读的句子；用户手动翻页后暂停跟随，显示「回到朗读位置」
+    var follow by remember { mutableStateOf(true) }
+    val lastSpeakAt = remember { longArrayOf(0) }
     DisposableEffect(Unit) { onDispose { tts.shutdown() } }
 
     LaunchedEffect(bookId) {
@@ -133,6 +136,27 @@ fun ReaderScreen(bookId: String, onBack: () -> Unit) {
         val pg = ReadLogic.bookFraction(cc.chapterChars, chapter, fraction)
         Library.update(ctx, bookId) { it.copy(chapter = chapter, fraction = fraction, progress = pg, lastReadAt = System.currentTimeMillis()) }
         book = Library.get(ctx, bookId)
+    }
+    fun listeningHere() = Listen.bookId == bookId && Listen.mode == Listen.Mode.TTS
+    fun speakJs() {
+        val s = Listen.current ?: return
+        if (!listeningHere() || Listen.chapter != chapter) return
+        lastSpeakAt[0] = System.currentTimeMillis()
+        js("__speak(" + org.json.JSONObject.quote(s.text) + "," + s.occurrence + "," + follow + ")")
+    }
+    fun startListen(sentence: Int) {
+        val b = Library.get(ctx, bookId) ?: return
+        follow = true
+        runCatching { Listen.startTts(ctx, b, chapter, sentence) }.onFailure { Toast.makeText(ctx, "朗读启动失败：${it.message}", Toast.LENGTH_LONG).show() }
+    }
+    fun startHere() {
+        val cc = content ?: return
+        webRef[0]?.evaluateJavascript("__firstVisible()") { v ->
+            val off = v?.toIntOrNull() ?: 0
+            val t = cc.chapterText(chapter)
+            val ss = ReadLogic.splitSentences(t)
+            startListen(ReadLogic.sentenceAt(ReadLogic.sentenceOffsets(t, ss), off))
+        }
     }
     fun applySettings(s: ReadSettings) { rs = s; ReadPrefs.save(ctx, s); load(chapter, fraction) }
 
@@ -194,6 +218,7 @@ fun ReaderScreen(bookId: String, onBack: () -> Unit) {
                                 pages = total
                                 val hls = Notes.bookHighlights(ctx, bookId).filter { it.chapter == chapter }
                                 if (hls.isNotEmpty()) js("__hl(" + org.json.JSONArray(hls.map { org.json.JSONObject().put("id", it.id).put("t", it.text).put("k", it.occurrence) }) + ")")
+                                if (listeningHere() && Listen.chapter == chapter) main.postDelayed({ speakJs() }, 60)
                                 val ph = pendingHl[0]
                                 if (ph != null) { pendingHl[0] = null; js("__goHl(" + org.json.JSONObject.quote(ph) + ")"); return@post }
                                 val pf = pendingFind[0]
@@ -211,6 +236,7 @@ fun ReaderScreen(bookId: String, onBack: () -> Unit) {
                                     if (ncpm != cpm) { cpm = ncpm; ReadPrefs.saveCpm(ctx, ncpm) }
                                 }
                                 pageShownAt[0] = now
+                                if (listeningHere() && Listen.playing && now - lastSpeakAt[0] > 1500 && p != pageNo) follow = false
                                 pageNo = p; pages = total; fraction = f
                                 saveProgress()
                             }.let {}
@@ -359,12 +385,36 @@ fun ReaderScreen(bookId: String, onBack: () -> Unit) {
                     }
                 }
             }
+            Panel.LISTEN -> Sheet("听书", { panel = Panel.NONE }) {
+                val b = book
+                if (b != null) ListenPanel(b, chapter) { panel = Panel.NONE; menu = false; startHere() }
+            }
             Panel.NONE -> {}
+        }
+
+        // 朗读到新句子：同章就高亮，跨章就先翻到那一章
+        LaunchedEffect(Listen.tick, Listen.chapter, Listen.bookId, Listen.mode) {
+            if (!listeningHere()) return@LaunchedEffect
+            if (Listen.chapter != chapter) { if (follow) load(Listen.chapter, 0.0) } else speakJs()
+        }
+        if (listeningHere() && panel == Panel.NONE && !menu) {
+            Row(Modifier.align(Alignment.BottomEnd).navigationBarsPadding().padding(end = 14.dp, bottom = 30.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (!follow) Text("回到朗读位置", color = C.Bg, fontSize = 13.sp, modifier = Modifier.background(C.Gold, RoundedCornerShape(16.dp)).clickable {
+                    follow = true; if (Listen.chapter != chapter) load(Listen.chapter, 0.0) else speakJs()
+                }.padding(horizontal = 12.dp, vertical = 8.dp))
+                Text(if (Listen.playing) "暂停朗读" else "继续朗读", color = C.Text, fontSize = 13.sp, modifier = Modifier.background(C.Surface, RoundedCornerShape(16.dp)).clickable { Listen.toggle() }.padding(horizontal = 12.dp, vertical = 8.dp))
+            }
         }
 
         pick?.let { pk ->
             WordCard(pk, bookTitle = book?.title ?: "", tts = tts,
                 onClose = { pick = null },
+                onListenHere = {
+                    val t = c.chapterText(chapter); val ss = ReadLogic.splitSentences(t)
+                    val head = pk.sentence.take(40)
+                    val i = ss.indexOfFirst { it.text.contains(head) || head.contains(it.text.take(40)) }.coerceAtLeast(0)
+                    pick = null; startListen(i)
+                },
                 onAddWord = { e ->
                     Notes.addWord(ctx, Notes.Word(e.word, e.phonetic, ReadLogic.shortMeaning(e.meaning), pk.sentence, bookId, book?.title ?: "", chapter, fraction, System.currentTimeMillis()))
                 },
@@ -416,7 +466,7 @@ private fun ReaderMenu(
             }
             Text("全书 ${(seek * 100).toInt()}%", color = C.Muted, fontSize = 12.sp, modifier = Modifier.align(Alignment.CenterHorizontally))
             Row(Modifier.fillMaxWidth()) {
-                listOf("目录" to Panel.TOC, "书签" to Panel.MARKS, "笔记" to Panel.NOTES, "排版" to Panel.STYLE).forEach { (t, p) ->
+                listOf("目录" to Panel.TOC, "书签" to Panel.MARKS, "笔记" to Panel.NOTES, "听书" to Panel.LISTEN, "排版" to Panel.STYLE).forEach { (t, p) ->
                     Box(Modifier.weight(1f).heightIn(min = 52.dp).clickable { onPanel(p) }, contentAlignment = Alignment.Center) {
                         Text(t, color = C.Text, fontSize = 14.sp)
                     }

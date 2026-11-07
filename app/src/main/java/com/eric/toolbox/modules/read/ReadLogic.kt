@@ -321,10 +321,100 @@ object ReadLogic {
         .replace("&quot;", "\"").replace("&#039;", "'").replace("&#39;", "'").replace("&rsquo;", "’").replace("&nbsp;", " ")
 
     /** 去掉标签得到纯文本（用于字数统计、全文搜索）。 */
-    fun stripTags(html: String): String =
-        htmlUnescape(
-            html.replace(Regex("""<(script|style|head)[\s\S]*?</\1>""", RegexOption.IGNORE_CASE), " ")
-                .replace(Regex("""<[^>]+>"""), " ")
-        ).replace(Regex("""&#(\d+);""")) { m -> m.groupValues[1].toIntOrNull()?.let { String(Character.toChars(it)) } ?: "" }
+    private val blockTag = Regex("""</?(p|div|br|li|ul|ol|h[1-6]|tr|td|th|table|blockquote|section|article|header|footer|pre|dd|dt|dl|hr|figure|figcaption|body|html)\b[^>]*>""", RegexOption.IGNORE_CASE)
+
+    /**
+     * 去掉标签得到纯文本（字数统计、全文搜索、朗读分句）。块级标签换成空格、行内标签直接去掉，
+     * 这样“<i>word</i>,” 得到 “word,” —— 与阅读页脚本 flat() 拼出的文字一致，朗读高亮才对得上。
+     */
+    fun stripTags(html: String): String {
+        val noHead = html.replace(Regex("""<(script|style|head)[\s\S]*?</\1>""", RegexOption.IGNORE_CASE), " ")
+        val t = blockTag.replace(noHead, " ").replace(Regex("""<[^>]+>"""), "")
+        return htmlUnescape(t)
+            .replace(Regex("""&#[xX]([0-9a-fA-F]+);""")) { m -> m.groupValues[1].toIntOrNull(16)?.let { String(Character.toChars(it)) } ?: "" }
+            .replace(Regex("""&#(\d+);""")) { m -> m.groupValues[1].toIntOrNull()?.let { String(Character.toChars(it)) } ?: "" }
+            .replace('\u00A0', ' ')
             .replace(Regex("""\s+"""), " ").trim()
+    }
+
+    // ---------- 朗读分句 ----------
+    private val abbrev = setOf("mr", "mrs", "ms", "dr", "st", "jr", "sr", "prof", "rev", "gen", "col", "capt", "lt", "sgt", "no", "vs", "etc", "i.e", "e.g", "mt")
+
+    data class Sentence(val text: String, val occurrence: Int)
+
+    /** 把一章纯文本切成适合朗读的句子；每句附“在本章第几次出现”，用于阅读页高亮定位。 */
+    fun splitSentences(text: String, maxLen: Int = 400): List<Sentence> {
+        val out = ArrayList<String>()
+        val sb = StringBuilder()
+        var i = 0
+        fun flush() { val t = sb.toString().trim(); if (t.isNotEmpty() && t.any { it.isLetterOrDigit() }) out += t; sb.setLength(0) }
+        while (i < text.length) {
+            val ch = text[i]
+            sb.append(ch)
+            val isStop = ch in ".!?。！？…；;"
+            if (isStop) {
+                // 吃掉紧跟的引号、括号和连续标点
+                while (i + 1 < text.length && text[i + 1] in "\"'”’)]」』.!?。！？") { i++; sb.append(text[i]) }
+                val cjk = ch in "。！？…；"
+                val next = text.getOrNull(i + 1)
+                val word = sb.toString().trimEnd().dropLast(1).takeLastWhile { it.isLetter() || it == '.' }.lowercase()
+                val isAbbr = ch == '.' && (word in abbrev || (word.length == 1 && word[0].isLetter()))
+                if (!isAbbr && (cjk || next == null || next == ' ')) flush()
+            } else if (sb.length >= maxLen && (ch == ',' || ch == '，' || ch == ' ')) flush()
+            i++
+        }
+        flush()
+        val seen = HashMap<String, Int>()
+        return out.map { t -> val k = seen.getOrDefault(t, 0); seen[t] = k + 1; Sentence(t, k) }
+    }
+
+    /** 每句在本章纯文本里的起点（顺序查找）；用于“从当前页开始读”“从这里听”。 */
+    fun sentenceOffsets(text: String, ss: List<Sentence>): IntArray {
+        val out = IntArray(ss.size)
+        var from = 0
+        ss.forEachIndexed { i, s -> val k = text.indexOf(s.text, from); out[i] = if (k >= 0) k else from; if (k >= 0) from = k + s.text.length }
+        return out
+    }
+
+    /** 找到起点不早于 offset 的第一句（offset 来自阅读页当前页第一个可见字的位置）。 */
+    fun sentenceAt(offsets: IntArray, offset: Int): Int {
+        if (offsets.isEmpty()) return 0
+        for (i in offsets.indices) if (offsets[i] >= offset - 2) return i
+        return offsets.size - 1
+    }
+
+    // ---------- LibriVox 真人有声书 ----------
+    data class AudioSection(val title: String, val url: String, val seconds: Int)
+    data class AudioBook(val id: String, val title: String, val readers: String, val totalSeconds: Int, val sections: List<AudioSection>)
+
+    fun librivoxUrl(title: String) =
+        "https://librivox.org/api/feed/audiobooks/?title=${enc("^" + title.substringBefore(':').substringBefore(';').trim())}&format=json&extended=1&limit=20"
+
+    /** 解析 LibriVox 返回；给了 Gutenberg 书号就只留文本来源是这本书的录音。 */
+    fun parseLibriVox(json: String, gutenbergId: Int?): List<AudioBook> {
+        val o = runCatching { JSONObject(json) }.getOrNull() ?: return emptyList()
+        val arr = o.optJSONArray("books") ?: return emptyList()
+        val out = ArrayList<AudioBook>()
+        for (i in 0 until arr.length()) {
+            val b = arr.getJSONObject(i)
+            val src = b.optString("url_text_source")
+            if (gutenbergId != null && !Regex("""gutenberg\.org/(etext|ebooks)/$gutenbergId(\D|$)""").containsMatchIn(src)) continue
+            val secs = b.optJSONArray("sections") ?: continue
+            val list = ArrayList<AudioSection>()
+            val readers = LinkedHashSet<String>()
+            for (j in 0 until secs.length()) {
+                val sct = secs.getJSONObject(j)
+                val url = sct.optString("listen_url").replace("http://", "https://")
+                if (!url.startsWith("https://")) continue
+                list += AudioSection(sct.optString("title").trim().ifEmpty { "第 ${j + 1} 段" }, url, sct.optString("playtime").toIntOrNull() ?: 0)
+                sct.optJSONArray("readers")?.let { r -> for (k in 0 until r.length()) r.getJSONObject(k).optString("display_name").takeIf { it.isNotBlank() }?.let { readers += it } }
+            }
+            if (list.isEmpty()) continue
+            out += AudioBook(b.optString("id"), b.optString("title"), readers.take(3).joinToString("、") + if (readers.size > 3) " 等 ${readers.size} 人" else "",
+                b.optString("totaltimesecs").toIntOrNull() ?: list.sumOf { it.seconds }, list)
+        }
+        return out
+    }
+
+    fun duration(secs: Int): String { val h = secs / 3600; val m = (secs % 3600) / 60; return if (h > 0) "$h 小时 $m 分" else "$m 分" }
 }

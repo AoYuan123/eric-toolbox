@@ -101,7 +101,7 @@ private fun Btn(text: String, on: Boolean = false, modifier: Modifier = Modifier
 @Composable
 fun WordCard(
     pick: Pick, bookTitle: String, tts: Speaker,
-    onClose: () -> Unit, onAddWord: (Dict.Entry) -> Unit, onHighlight: (translation: String?) -> Unit,
+    onClose: () -> Unit, onAddWord: (Dict.Entry) -> Unit, onHighlight: (translation: String?) -> Unit, onListenHere: () -> Unit,
 ) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -161,6 +161,7 @@ fun WordCard(
                 }
                 if (pick.sentence.isNotBlank()) Btn("划线", modifier = Modifier.weight(1f)) { onHighlight(tr) }
             }
+            if (pick.sentence.isNotBlank()) Btn("从这句开始听", modifier = Modifier.fillMaxWidth()) { onListenHere() }
             Text("词典：ECDICT（离线）" + if (pick.sentence.isNotBlank()) " · 翻译：百度翻译（与临床试验共用额度）" else "", color = C.Muted, fontSize = 10.sp)
         }
     }

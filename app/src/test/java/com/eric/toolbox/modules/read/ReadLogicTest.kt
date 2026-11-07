@@ -244,4 +244,34 @@ class ReadLogicTest {
         ))
         assertEquals("《Pride and Prejudice》笔记（2 条）\n\n— Chapter 1\n“It is a truth universally acknowledged.”\n  译：这是举世公认的真理。\n  笔记：开篇名句\n“Mr. Bennet replied that he had not.”\n\n—— 摘自 Eric的百宝箱 · 读书", t)
     }
+    @Test fun sentences() {
+        val t = "“My dear Mr. Bennet,” said his lady to him one day, “have you heard that Netherfield Park is let at last?” Mr. Bennet replied that he had not. Mr. Bennet replied that he had not. 天下大势，分久必合。合久必分！"
+        val ss = ReadLogic.splitSentences(t)
+        assertEquals(listOf(
+            "“My dear Mr. Bennet,” said his lady to him one day, “have you heard that Netherfield Park is let at last?”",
+            "Mr. Bennet replied that he had not.", "Mr. Bennet replied that he had not.", "天下大势，分久必合。", "合久必分！",
+        ), ss.map { it.text })
+        assertEquals(listOf(0, 0, 1, 0, 0), ss.map { it.occurrence })
+        val long = ReadLogic.splitSentences(("word, ").repeat(200))
+        assertTrue(long.size > 1 && long.all { it.text.length <= 410 })
+    }
+
+    @Test fun stripInlineTags() {
+        assertEquals("It is a truth universally acknowledged, that a single man", ReadLogic.stripTags("<p>It is a truth universally <i>acknowledged</i>, that a</p><p>single&nbsp;man</p>"))
+        assertEquals("’ x", ReadLogic.stripTags("&#x2019; x"))
+    }
+
+    // 11-07 实测 LibriVox 返回的字段（节选，第二条换成别的书号以验证过滤）
+    @Test fun librivoxParse() {
+        val json = """{"books":[{"id":"253","title":"Pride and Prejudice","url_text_source":"https://www.gutenberg.org/etext/1342","totaltimesecs":47204,
+          "sections":[{"title":"Chapters 1-3","listen_url":"https://www.archive.org/download/pride_and_prejudice_librivox/prideandprejudice_01-03_austen_64kb.mp3","playtime":"1200","readers":[{"display_name":"Chris Goringe"}]}]},
+          {"id":"9","title":"Other","url_text_source":"https://www.gutenberg.org/etext/13421","sections":[{"title":"x","listen_url":"https://a/b.mp3","playtime":"5"}]}]}"""
+        val bs = ReadLogic.parseLibriVox(json, 1342)
+        assertEquals(1, bs.size)
+        assertEquals("Chris Goringe", bs[0].readers)
+        assertEquals(47204, bs[0].totalSeconds)
+        assertEquals("13 小时 6 分", ReadLogic.duration(47204))
+        assertEquals("https://www.archive.org/download/pride_and_prejudice_librivox/prideandprejudice_01-03_austen_64kb.mp3", bs[0].sections[0].url)
+        assertEquals(2, ReadLogic.parseLibriVox(json, null).size)
+    }
 }

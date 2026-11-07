@@ -122,7 +122,11 @@ app/src/test/.../GoldLogicTest.kt、DateLogicTest.kt、TrialLogicTest.kt   单�
   `VocabScreens.kt` 生词本/笔记/卡片复习；导出走系统分享。翻译复用临床试验的百度翻译设置与额度（Translator.ready/translateMissing/cached）。
   阅读页脚本：`flat()` 把正文文本节点拼成一串（块之间插 \n）供取词取句、按“第 k 次出现”标划线；最后一页补占位点修正分页偏移（11-07 Chromium 实测 13 页左边距全为 22px）。
   默认长按查词（点击留给翻页）；设置里可开「点一下单词就查词」。
-- 待做：第三批 机器朗读（系统 TTS，句子高亮、后台、定时）+ LibriVox。
+- **第三批（11-07）听书**：`Listen.kt` 全局引擎（Compose 可观察状态）——机器朗读用系统 TTS 逐句（`ReadLogic.splitSentences`，Mr./Mrs. 等缩写不断句、超长句按逗号切），
+  真人朗读用 ExoPlayer 播放已下载的 LibriVox 段（`AudioDownloads` 排队下载、失败重试 3 次，存 files/read/audio/<书id>/）。`ListenService` 前台服务（mediaPlayback）+ MediaSessionCompat（依赖 androidx.media:media:1.7.0）：
+  通知/锁屏/耳机控制，拔耳机暂停，暂停时退出前台可划掉。阅读页 `__speak(句子,k,follow)` 按压缩空白后的“第 k 次出现”高亮并自动翻页（Chromium 实测跨标签、第 31 次出现都能定位）；
+  用户手动翻页后停止跟随、显示「回到朗读位置」。`stripTags` 改为块级标签→空格、行内标签直接去掉，保证与 `flat()` 文本一致。进度存在 Book.listen*/audio*。
+- 待做：听书真机实测（语音引擎、锁屏续播、耳机按键）。
 - 预览画布：读书模块 8 个画板（ReadHome/ReadSearch/ReadDetail/Reader/ReadStyle/ReadListen/ReadVocab/ReadGuji）。
 
 **zlib 的边界（改动前务必守住）**

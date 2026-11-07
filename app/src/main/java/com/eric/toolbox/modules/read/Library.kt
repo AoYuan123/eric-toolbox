@@ -33,11 +33,19 @@ object Library {
         val bookmarks: List<Bookmark> = emptyList(),
         val gutenbergId: Int? = null,
         val finished: Boolean = false,
+        // 听书进度：机器朗读（章、句）和真人朗读（录音 id、段、毫秒）
+        val listenChapter: Int = -1,
+        val listenSentence: Int = 0,
+        val listenAt: Long = 0,
+        val audioId: String? = null,
+        val audioSection: Int = 0,
+        val audioMs: Long = 0,
     ) {
         fun toJson() = JSONObject().apply {
             put("id", id); put("title", title); put("authors", JSONArray(authors)); put("format", format); put("source", source)
             put("cover", coverUrl ?: ""); put("added", addedAt); put("last", lastReadAt); put("ch", chapter); put("fr", fraction)
             put("pg", progress); put("gid", gutenbergId ?: 0); put("fin", finished)
+            put("lc", listenChapter); put("ls", listenSentence); put("la", listenAt); put("aid", audioId ?: ""); put("as", audioSection); put("am", audioMs)
             put("bm", JSONArray().apply { bookmarks.forEach { b -> put(JSONObject().put("c", b.chapter).put("f", b.fraction).put("s", b.snippet).put("t", b.at)) } })
         }
 
@@ -48,6 +56,8 @@ object Library {
                 format = o.optString("format", "epub"), source = o.optString("source"), coverUrl = o.optString("cover").ifEmpty { null },
                 addedAt = o.optLong("added"), lastReadAt = o.optLong("last"), chapter = o.optInt("ch"), fraction = o.optDouble("fr", 0.0),
                 progress = o.optDouble("pg", 0.0), gutenbergId = o.optInt("gid", 0).takeIf { it > 0 }, finished = o.optBoolean("fin"),
+                listenChapter = o.optInt("lc", -1), listenSentence = o.optInt("ls", 0), listenAt = o.optLong("la"),
+                audioId = o.optString("aid").ifEmpty { null }, audioSection = o.optInt("as"), audioMs = o.optLong("am"),
                 bookmarks = o.optJSONArray("bm")?.let { a ->
                     (0 until a.length()).map { val b = a.getJSONObject(it); Bookmark(b.optInt("c"), b.optDouble("f", 0.0), b.optString("s"), b.optLong("t")) }
                 } ?: emptyList(),
@@ -95,6 +105,7 @@ object Library {
     fun remove(ctx: Context, id: String) {
         save(ctx, all(ctx).filter { it.id != id })
         File(File(root(ctx), "books"), id).deleteRecursively()
+        File(root(ctx), "audio/$id").deleteRecursively()
         Notes.removeBook(ctx, id)
     }
 
@@ -105,6 +116,51 @@ object Library {
 
     // ---------- 下载 ----------
     private const val MAX_BYTES = 150L * 1024 * 1024
+
+    /** 通用下载：https、自己跟随跳转（Gutenberg、archive.org 都会跳）、写到 target.part 再改名，失败删掉半截文件。 */
+    suspend fun downloadFile(url: String, target: File, onProgress: (done: Long, total: Long) -> Unit) = withContext(Dispatchers.IO) {
+        val part = File(target.parentFile, target.name + ".part")
+        try {
+            var current = url
+            var conn: HttpURLConnection? = null
+            for (hop in 0..6) {
+                require(current.startsWith("https://")) { "下载地址不是 https" }
+                val c = URL(current).openConnection() as HttpURLConnection
+                c.instanceFollowRedirects = false
+                c.connectTimeout = 25_000
+                c.readTimeout = 60_000
+                c.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android) EricToolbox")
+                val code = c.responseCode
+                if (code in 300..399) {
+                    val loc = c.getHeaderField("Location") ?: throw java.io.IOException("跳转地址缺失")
+                    current = URL(URL(current), loc).toString().replaceFirst("http://", "https://"); c.disconnect()
+                    if (hop == 6) throw java.io.IOException("跳转次数过多")
+                    continue
+                }
+                if (code !in 200..299) { c.disconnect(); throw java.io.IOException("下载失败：HTTP $code") }
+                conn = c; break
+            }
+            val c = conn ?: throw java.io.IOException("下载失败")
+            try {
+                val total = c.contentLengthLong
+                var done = 0L; var last = 0L
+                c.inputStream.use { input ->
+                    part.outputStream().use { os ->
+                        val buf = ByteArray(64 * 1024)
+                        while (true) {
+                            val n = input.read(buf); if (n < 0) break
+                            os.write(buf, 0, n); done += n
+                            if (done > MAX_BYTES) throw java.io.IOException("文件过大")
+                            val now = System.currentTimeMillis()
+                            if (now - last > 250) { last = now; withContext(Dispatchers.Main) { onProgress(done, total) } }
+                        }
+                    }
+                }
+                if (total > 0 && done != total) throw java.io.IOException("下载不完整，请重试")
+            } finally { c.disconnect() }
+            if (!part.renameTo(target)) throw java.io.IOException("保存失败")
+        } catch (e: Exception) { part.delete(); throw e }
+    }
 
     /** 下载 EPUB（自己跟随跳转，只允许 https），校验是 zip 且能解析成 EPUB 后加入书架。 */
     suspend fun download(

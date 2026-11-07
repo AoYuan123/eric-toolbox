@@ -121,6 +121,18 @@ internal fun ReadHome(onBack: () -> Unit, go: (RPage) -> Unit) {
                 verticalAlignment = Alignment.CenterVertically,
             ) { Text("搜书名、作者（同时查 3 个公版书库）", color = C.Muted, fontSize = 14.sp) }
 
+            if (Listen.active) {
+                Row(
+                    Modifier.fillMaxWidth().background(C.GoldBg, RoundedCornerShape(14.dp)).clickable { Listen.bookId?.let { go(RPage.Reader(it)) } }.padding(horizontal = 14.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text((if (Listen.mode == Listen.Mode.TTS) "机器朗读 · " else "真人朗读 · ") + Listen.bookTitle, color = C.Gold, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(Listen.chapterTitle, color = C.Muted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                    Text(if (Listen.playing) "暂停" else "继续", color = C.Text, fontSize = 14.sp, modifier = Modifier.clickable { Listen.toggle() }.padding(10.dp))
+                }
+            }
             val cur = books.firstOrNull { it.lastReadAt > 0 && !it.finished }
             if (cur != null) {
                 SectionLabel("继续")
@@ -365,7 +377,7 @@ internal fun DetailScreen(h: ReadLogic.Hit, onBack: () -> Unit, openBook: (Strin
             h.webUrl?.let { url ->
                 ListCard { RowItem("在网页上打开", "", url.removePrefix("https://").substringBefore('/')) { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) } }
             }
-            Text("听书（机器朗读 / 真人有声书）在后续版本加上。", color = C.Muted, fontSize = 12.sp, modifier = Modifier.padding(4.dp))
+            Text("下载后在阅读器菜单里点「听书」：机器朗读任何书都能听；真人有声书（LibriVox）只有部分公版英文书有。", color = C.Muted, fontSize = 12.sp, modifier = Modifier.padding(4.dp))
         }
     }
 }
