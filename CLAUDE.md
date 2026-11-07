@@ -188,6 +188,8 @@ app/src/test/.../GoldLogicTest.kt、DateLogicTest.kt、TrialLogicTest.kt   单�
   - 首次实测 v1.0.33：下载 14.2MB 用 51 秒，上传 Gitee 5 秒。同一天 GitHub Actions→Gitee 上传连续多次卡死 7 分钟 0 字节。
   - Gitee 令牌由用户在 install.bat 里自己粘贴，DPAPI 加密存 token.dat，Claude 不经手；uninstall.bat 删除任务和令牌。
   - 坑：PowerShell 5.1 读 curl.exe 输出默认按 GBK，会把 UTF-8 中文连同 JSON 读坏，脚本里已设 `[Console]::OutputEncoding = UTF8`；Invoke-WebRequest 必须关进度条。
+  - 11-07 两个坑已修：①与 GitHub 备用同步同时建发行版时 Gitee 报“该标签已经存在发行版”→ 脚本改为再查一次用已有的；②任务计划默认“只在接通电源时运行”，笔记本用电池时不跑 → fix.bat / 新 install.ps1 已关掉该限制。
+  - 往用户电脑写文件（device_commit_files）同一个 stagedPath 第二次提交可能写进旧内容：每次换新目录再提交，并用 device_list_dir 核对大小。
   - 电脑关机时 GitHub 的 gitee-sync.yml 仍作备用（任务内重试最长 2 小时，见 .github/scripts/gitee-sync.sh）。
 
 ## 8. 邮件提醒（11-02 用户确认预览后上线）
