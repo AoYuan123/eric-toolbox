@@ -210,7 +210,7 @@ class ReadLogicTest {
         assertTrue(out.indexOf("window.__next") > out.indexOf("<p>Hi</p>"))
         val bare = ReaderHtml.wrap("<p>x</p>", s.copy(paged = false), "night")
         assertTrue(bare.contains("<body>") && bare.contains("#111214"))
-        assertFalse(bare.contains("column-width"))
+        assertFalse(bare.contains("column-width:calc")) // 滚动模式样式里不分栏（脚本里的分页代码只在左右翻页时执行）
         assertEquals("night", ReadSettings(autoNight = true).effectiveTheme(23))
         assertEquals("paper", ReadSettings(autoNight = true).effectiveTheme(12))
     }
