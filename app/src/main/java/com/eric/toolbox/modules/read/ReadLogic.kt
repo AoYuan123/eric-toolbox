@@ -253,6 +253,67 @@ object ReadLogic {
         return ((before + chapterChars[i] * fraction.coerceIn(0.0, 1.0)) / total).coerceIn(0.0, 1.0)
     }
 
+    // ---------- 查词 ----------
+    /** 把点到的词规范化：去引号标点、去所有格 's、小写。返回 null 表示不是英文单词。 */
+    fun cleanWord(raw: String): String? {
+        var w = raw.trim().replace('’', '\'').replace('‘', '\'')
+        w = w.trim { !it.isLetter() }
+        if (w.endsWith("'s", ignoreCase = true)) w = w.dropLast(2)
+        if (w.isEmpty() || w.length > 40) return null
+        if (!w.all { it in 'a'..'z' || it in 'A'..'Z' || it == '-' || it == '\'' }) return null
+        return w.lowercase()
+    }
+
+    /** 词典里查不到时依次尝试的候选（规则变形还原），按可能性排序、去重。 */
+    fun stemCandidates(w: String): List<String> {
+        val out = LinkedHashSet<String>()
+        out += w
+        if (w.contains('-')) out += w.replace("-", "")
+        fun add(s: String) { if (s.length >= 2) out += s }
+        if (w.endsWith("ies")) add(w.dropLast(3) + "y")
+        if (w.endsWith("es")) add(w.dropLast(2))
+        if (w.endsWith("s") && !w.endsWith("ss")) add(w.dropLast(1))
+        if (w.endsWith("ied")) add(w.dropLast(3) + "y")
+        if (w.endsWith("ed")) { add(w.dropLast(2)); add(w.dropLast(1)); if (w.length > 4 && w[w.length - 3] == w[w.length - 4]) add(w.dropLast(3)) }
+        if (w.endsWith("ing")) { add(w.dropLast(3)); add(w.dropLast(3) + "e"); if (w.length > 5 && w[w.length - 4] == w[w.length - 5]) add(w.dropLast(4)) }
+        if (w.endsWith("ier")) add(w.dropLast(3) + "y")
+        if (w.endsWith("iest")) add(w.dropLast(4) + "y")
+        if (w.endsWith("er")) add(w.dropLast(2))
+        if (w.endsWith("est")) add(w.dropLast(3))
+        if (w.endsWith("ly")) add(w.dropLast(2))
+        return out.toList()
+    }
+
+    /** 词典释义里的 [网络]/[计] 等专业标注只留前几行，弹窗里最多显示 4 行。 */
+    fun shortMeaning(t: String, lines: Int = 4) = t.split('\n').map { it.trim() }.filter { it.isNotEmpty() }.take(lines).joinToString("\n")
+
+    // ---------- 生词复习（莱特纳盒子） ----------
+    /** 复习间隔（天）：第 0 盒当天，答对一次进一盒。 */
+    private val boxDays = intArrayOf(0, 1, 2, 4, 7, 15, 30, 60)
+
+    /** result: 2 认识 / 1 模糊 / 0 不认识。返回 (新盒号, 下次复习时间毫秒)。 */
+    fun review(box: Int, result: Int, nowMs: Long): Pair<Int, Long> {
+        val nb = when (result) { 2 -> (box + 1).coerceAtMost(boxDays.size - 1); 1 -> box.coerceAtLeast(1); else -> 0 }
+        val days = if (result == 0) 0 else boxDays[nb]
+        val next = if (days == 0) nowMs + 10 * 60_000L else nowMs + days * 86_400_000L
+        return nb to next
+    }
+
+    // ---------- 导出 ----------
+    data class NoteLine(val chapterTitle: String, val text: String, val note: String, val translation: String?)
+
+    fun exportNotes(title: String, notes: List<NoteLine>): String = buildString {
+        append("《").append(title).append("》笔记（").append(notes.size).append(" 条）\n")
+        var lastCh = ""
+        notes.forEach { n ->
+            if (n.chapterTitle != lastCh) { append("\n— ").append(n.chapterTitle.trim()).append("\n"); lastCh = n.chapterTitle }
+            append("“").append(n.text.trim()).append("”\n")
+            if (!n.translation.isNullOrBlank()) append("  译：").append(n.translation.trim()).append("\n")
+            if (n.note.isNotBlank()) append("  笔记：").append(n.note.trim()).append("\n")
+        }
+        append("\n—— 摘自 Eric的百宝箱 · 读书")
+    }
+
     // ---------- 杂项 ----------
     fun htmlEscape(s: String) = s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\"", "&quot;")
 

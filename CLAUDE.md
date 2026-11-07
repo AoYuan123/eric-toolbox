@@ -117,7 +117,12 @@ app/src/test/.../GoldLogicTest.kt、DateLogicTest.kt、TrialLogicTest.kt   单�
   Open Library 借阅要登录 IA 账号，App 只跳网页；国图古籍库无公开接口，只支持 http，免登录。
 - LibriVox：`https://librivox.org/api/feed/audiobooks/?title=^…&format=json&extended=1`，`url_text_source` 指向 Gutenberg 书号可精确配对；
   音频在 archive.org，国内实测首字节 24 秒、第二次失败——第三批做“先下载章节再听”。
-- 待做：第二批 点词查释义（离线 ECDICT）、整句翻译（复用百度翻译额度）、生词本、划线笔记导出；第三批 机器朗读（系统 TTS，句子高亮、后台、定时）+ LibriVox。
+- **第二批（11-07）**：长按单词/句子 → `ReaderCards.WordCard`（离线释义、发音、加生词本、翻译整句、划线）；点已划线句子 → `HighlightCard`（笔记、翻译、删除）；
+  `Dict.kt` 读 `assets/ecdict-mini.db.gz`（ECDICT MIT 精简：58,226 词 + 39,047 变形，首次解压到 files/read/）；`Notes.kt` 生词本 vocab.json（莱特纳复习 1/2/4/7/15/30/60 天）与划线 notes.json；
+  `VocabScreens.kt` 生词本/笔记/卡片复习；导出走系统分享。翻译复用临床试验的百度翻译设置与额度（Translator.ready/translateMissing/cached）。
+  阅读页脚本：`flat()` 把正文文本节点拼成一串（块之间插 \n）供取词取句、按“第 k 次出现”标划线；最后一页补占位点修正分页偏移（11-07 Chromium 实测 13 页左边距全为 22px）。
+  默认长按查词（点击留给翻页）；设置里可开「点一下单词就查词」。
+- 待做：第三批 机器朗读（系统 TTS，句子高亮、后台、定时）+ LibriVox。
 - 预览画布：读书模块 8 个画板（ReadHome/ReadSearch/ReadDetail/Reader/ReadStyle/ReadListen/ReadVocab/ReadGuji）。
 
 **zlib 的边界（改动前务必守住）**

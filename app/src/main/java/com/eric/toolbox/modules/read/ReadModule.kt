@@ -42,6 +42,8 @@ internal sealed interface RPage {
     data class Detail(val hit: ReadLogic.Hit) : RPage
     data class Reader(val bookId: String) : RPage
     data object Guji : RPage
+    data object Vocab : RPage
+    data object Review : RPage
 }
 
 @Composable
@@ -58,6 +60,8 @@ private fun ReadRoot(onBack: () -> Unit) {
         is RPage.Detail -> DetailScreen(p.hit, back) { id -> stack = stack.dropLast(1) + RPage.Reader(id) }
         is RPage.Reader -> ReaderScreen(p.bookId, back)
         RPage.Guji -> GujiScreen(back)
+        RPage.Vocab -> VocabScreen(back, go)
+        RPage.Review -> ReviewScreen(back)
     }
 }
 
@@ -79,6 +83,7 @@ object ReadPrefs {
             keepScreenOn = p.getBoolean("keep_on", d.keepScreenOn),
             autoNight = p.getBoolean("auto_night", d.autoNight),
             tapSides = p.getBoolean("tap_sides", d.tapSides),
+            tapLookup = p.getBoolean("tap_lookup", d.tapLookup),
         )
     }
 
@@ -87,7 +92,7 @@ object ReadPrefs {
             .putInt("font_size", s.fontSize).putFloat("line_height", s.lineHeight.toFloat()).putInt("margin", s.margin)
             .putString("font", s.font).putString("theme", s.theme).putBoolean("paged", s.paged)
             .putBoolean("volume_keys", s.volumeKeys).putBoolean("keep_on", s.keepScreenOn)
-            .putBoolean("auto_night", s.autoNight).putBoolean("tap_sides", s.tapSides).apply()
+            .putBoolean("auto_night", s.autoNight).putBoolean("tap_sides", s.tapSides).putBoolean("tap_lookup", s.tapLookup).apply()
     }
 
     /** 学到的阅读速度（字符/分钟），0 表示还没学到，用默认值。 */

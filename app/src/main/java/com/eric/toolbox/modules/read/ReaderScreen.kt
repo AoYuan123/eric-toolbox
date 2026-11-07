@@ -72,7 +72,10 @@ import java.util.Calendar
 
 private fun hex(s: String) = Color(android.graphics.Color.parseColor(s))
 
-private enum class Panel { NONE, TOC, MARKS, STYLE, SEARCH }
+private enum class Panel { NONE, TOC, MARKS, STYLE, SEARCH, NOTES }
+
+/** 长按取到的词和整句（来自阅读页脚本）。 */
+data class Pick(val word: String, val sentence: String, val occurrence: Int, val y: Double)
 
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
@@ -100,6 +103,11 @@ fun ReaderScreen(bookId: String, onBack: () -> Unit) {
     val pending = remember { doubleArrayOf(0.0) }
     val pendingFind = remember { arrayOf<Pair<String, Int>?>(null) }
     val webRef = remember { arrayOf<WebView?>(null) }
+    var pick by remember { mutableStateOf<Pick?>(null) }
+    var openHl by remember { mutableStateOf<String?>(null) }
+    val pendingHl = remember { arrayOf<String?>(null) }
+    val tts = remember { Speaker(ctx) }
+    DisposableEffect(Unit) { onDispose { tts.shutdown() } }
 
     LaunchedEffect(bookId) {
         val b = book ?: run { err = "书不在书架上了"; return@LaunchedEffect }
@@ -130,7 +138,7 @@ fun ReaderScreen(bookId: String, onBack: () -> Unit) {
 
     DisposableEffect(rs.volumeKeys, c) {
         KeyHooks.handler = if (rs.volumeKeys && c != null) { e: KeyEvent ->
-            if (menu || panel != Panel.NONE) false
+            if (menu || panel != Panel.NONE || pick != null || openHl != null) false
             else when (e.keyCode) {
                 KeyEvent.KEYCODE_VOLUME_DOWN -> { if (e.action == KeyEvent.ACTION_DOWN) js("__next()"); true }
                 KeyEvent.KEYCODE_VOLUME_UP -> { if (e.action == KeyEvent.ACTION_DOWN) js("__prev()"); true }
@@ -142,6 +150,8 @@ fun ReaderScreen(bookId: String, onBack: () -> Unit) {
 
     BackHandler {
         when {
+            pick != null -> pick = null
+            openHl != null -> openHl = null
             panel != Panel.NONE -> panel = Panel.NONE
             menu -> menu = false
             else -> onBack()
@@ -182,6 +192,10 @@ fun ReaderScreen(bookId: String, onBack: () -> Unit) {
                         addJavascriptInterface(object {
                             @JavascriptInterface fun ready(total: Int) = main.post {
                                 pages = total
+                                val hls = Notes.bookHighlights(ctx, bookId).filter { it.chapter == chapter }
+                                if (hls.isNotEmpty()) js("__hl(" + org.json.JSONArray(hls.map { org.json.JSONObject().put("id", it.id).put("t", it.text).put("k", it.occurrence) }) + ")")
+                                val ph = pendingHl[0]
+                                if (ph != null) { pendingHl[0] = null; js("__goHl(" + org.json.JSONObject.quote(ph) + ")"); return@post }
                                 val pf = pendingFind[0]
                                 when {
                                     pf != null -> { pendingFind[0] = null; js("__find(${org.json.JSONObject.quote(pf.first)}, ${pf.second})") }
@@ -200,7 +214,12 @@ fun ReaderScreen(bookId: String, onBack: () -> Unit) {
                                 pageNo = p; pages = total; fraction = f
                                 saveProgress()
                             }.let {}
-                            @JavascriptInterface fun tap(zone: Int) = main.post { menu = !menu; panel = Panel.NONE }.let {}
+                            @JavascriptInterface fun tap(zone: Int) = main.post { if (pick != null || openHl != null) { pick = null; openHl = null } else { menu = !menu; panel = Panel.NONE } }.let {}
+                            @JavascriptInterface fun word(json: String) = main.post {
+                                runCatching { val o = org.json.JSONObject(json); pick = Pick(o.optString("word"), o.optString("sentence"), o.optInt("k"), o.optDouble("y", 0.5)) }
+                                menu = false; openHl = null
+                            }.let {}
+                            @JavascriptInterface fun hl(id: String) = main.post { openHl = id; pick = null; menu = false }.let {}
                             @JavascriptInterface fun edge(dir: Int) = main.post {
                                 val cc = content ?: return@post
                                 if (dir > 0) {
@@ -324,7 +343,48 @@ fun ReaderScreen(bookId: String, onBack: () -> Unit) {
                     }
                 }
             }
+            Panel.NOTES -> Sheet("本书笔记", { panel = Panel.NONE }) {
+                val list = remember { Notes.bookHighlights(ctx, bookId) }
+                if (list.isEmpty()) Text("还没有划线。长按书里的一句话，在弹出的卡片里点「划线」。", color = C.Muted, fontSize = 14.sp)
+                else Text("共 ${list.size} 条 · 导出", color = C.Gold, fontSize = 13.sp, modifier = Modifier.clickable {
+                    shareText(ctx, "《${book?.title}》笔记", Notes.exportBook(ctx, bookId, book?.title ?: ""))
+                }.padding(vertical = 6.dp))
+                LazyColumn(Modifier.fillMaxWidth()) {
+                    itemsIndexed(list) { _, h ->
+                        Column(Modifier.fillMaxWidth().clickable { panel = Panel.NONE; menu = false; pendingHl[0] = h.id; load(h.chapter, h.fraction) }.padding(vertical = 10.dp)) {
+                            Text(h.chapterTitle.trim(), color = C.Muted, fontSize = 12.sp)
+                            Text(h.text, color = C.Text, fontSize = 14.sp, maxLines = 3, overflow = TextOverflow.Ellipsis)
+                            if (h.note.isNotBlank()) Text("笔记：" + h.note, color = C.Gold, fontSize = 13.sp)
+                        }
+                    }
+                }
+            }
             Panel.NONE -> {}
+        }
+
+        pick?.let { pk ->
+            WordCard(pk, bookTitle = book?.title ?: "", tts = tts,
+                onClose = { pick = null },
+                onAddWord = { e ->
+                    Notes.addWord(ctx, Notes.Word(e.word, e.phonetic, ReadLogic.shortMeaning(e.meaning), pk.sentence, bookId, book?.title ?: "", chapter, fraction, System.currentTimeMillis()))
+                },
+                onHighlight = { tr ->
+                    val id = java.lang.Long.toString(System.currentTimeMillis(), 36)
+                    Notes.addHighlight(ctx, Notes.Highlight(id, bookId, book?.title ?: "", chapter, c.chapterTitle(chapter), pk.sentence, pk.occurrence, fraction, translation = tr, at = System.currentTimeMillis()))
+                    js("__hl([" + org.json.JSONObject().put("id", id).put("t", pk.sentence).put("k", pk.occurrence) + "])")
+                    pick = null
+                    Toast.makeText(ctx, "已划线，可在菜单「笔记」里查看", Toast.LENGTH_SHORT).show()
+                })
+        }
+        openHl?.let { id ->
+            val h = Notes.highlights(ctx).firstOrNull { it.id == id }
+            if (h == null) {
+                LaunchedEffect(id) { openHl = null }
+            } else {
+                HighlightCard(h, onClose = { openHl = null }, onDelete = {
+                    Notes.removeHighlight(ctx, id); js("__unhl(" + org.json.JSONObject.quote(id) + ")"); openHl = null
+                })
+            }
         }
     }
 }
@@ -356,7 +416,7 @@ private fun ReaderMenu(
             }
             Text("全书 ${(seek * 100).toInt()}%", color = C.Muted, fontSize = 12.sp, modifier = Modifier.align(Alignment.CenterHorizontally))
             Row(Modifier.fillMaxWidth()) {
-                listOf("目录" to Panel.TOC, "书签" to Panel.MARKS, "排版" to Panel.STYLE).forEach { (t, p) ->
+                listOf("目录" to Panel.TOC, "书签" to Panel.MARKS, "笔记" to Panel.NOTES, "排版" to Panel.STYLE).forEach { (t, p) ->
                     Box(Modifier.weight(1f).heightIn(min = 52.dp).clickable { onPanel(p) }, contentAlignment = Alignment.Center) {
                         Text(t, color = C.Text, fontSize = 14.sp)
                     }
@@ -416,6 +476,7 @@ private fun StylePanel(s: ReadSettings, onChange: (ReadSettings) -> Unit) {
         }
         ToggleRow("音量键翻页", null, s.volumeKeys) { onChange(s.copy(volumeKeys = it)) }
         ToggleRow("点屏幕左右两侧翻页", "中间点一下呼出菜单", s.tapSides) { onChange(s.copy(tapSides = it)) }
+        ToggleRow("点一下单词就查词", "默认长按查词；打开后点单词直接查，点空白处才翻页", s.tapLookup) { onChange(s.copy(tapLookup = it)) }
         ToggleRow("阅读时屏幕常亮", null, s.keepScreenOn) { onChange(s.copy(keepScreenOn = it)) }
         ToggleRow("晚上 22 点到早上 6 点自动夜间", null, s.autoNight) { onChange(s.copy(autoNight = it)) }
     }

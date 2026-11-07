@@ -214,4 +214,34 @@ class ReadLogicTest {
         assertEquals("night", ReadSettings(autoNight = true).effectiveTheme(23))
         assertEquals("paper", ReadSettings(autoNight = true).effectiveTheme(12))
     }
+    @Test fun wordCleaning() {
+        assertEquals("acknowledged", ReadLogic.cleanWord("acknowledged,"))
+        assertEquals("bennet", ReadLogic.cleanWord("“Bennet’s"))
+        assertEquals("don't", ReadLogic.cleanWord("don’t"))
+        assertNull(ReadLogic.cleanWord("天下"))
+        assertNull(ReadLogic.cleanWord("1813"))
+        val c = ReadLogic.stemCandidates("stopped")
+        assertTrue(c.containsAll(listOf("stopped", "stopp", "stop")))
+        assertTrue(ReadLogic.stemCandidates("making").contains("make"))
+        assertTrue(ReadLogic.stemCandidates("families").contains("family"))
+        assertTrue(ReadLogic.stemCandidates("happiest").contains("happy"))
+    }
+
+    @Test fun reviewIntervals() {
+        val now = 1_000_000_000L
+        val day = 86_400_000L
+        assertEquals(1 to now + day, ReadLogic.review(0, 2, now))
+        assertEquals(4 to now + 7 * day, ReadLogic.review(3, 2, now))
+        assertEquals(7 to now + 60 * day, ReadLogic.review(7, 2, now))
+        assertEquals(0 to now + 600_000L, ReadLogic.review(5, 0, now))
+        assertEquals(1 to now + day, ReadLogic.review(0, 1, now))
+    }
+
+    @Test fun exportFormat() {
+        val t = ReadLogic.exportNotes("Pride and Prejudice", listOf(
+            ReadLogic.NoteLine("Chapter 1", "It is a truth universally acknowledged.", "开篇名句", "这是举世公认的真理。"),
+            ReadLogic.NoteLine("Chapter 1", "Mr. Bennet replied that he had not.", "", null),
+        ))
+        assertEquals("《Pride and Prejudice》笔记（2 条）\n\n— Chapter 1\n“It is a truth universally acknowledged.”\n  译：这是举世公认的真理。\n  笔记：开篇名句\n“Mr. Bennet replied that he had not.”\n\n—— 摘自 Eric的百宝箱 · 读书", t)
+    }
 }

@@ -95,6 +95,7 @@ object Library {
     fun remove(ctx: Context, id: String) {
         save(ctx, all(ctx).filter { it.id != id })
         File(File(root(ctx), "books"), id).deleteRecursively()
+        Notes.removeBook(ctx, id)
     }
 
     /** 最近读的排前面，没读过的按加入时间。 */

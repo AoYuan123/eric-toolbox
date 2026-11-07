@@ -112,7 +112,9 @@ internal fun ReadHome(onBack: () -> Unit, go: (RPage) -> Unit) {
     }
 
     Column(Modifier.fillMaxSize()) {
-        TopBar("读书", onBack)
+        TopBar("读书", onBack) {
+            Text("生词本 · 笔记", color = C.Muted, fontSize = 13.sp, modifier = Modifier.clickable { go(RPage.Vocab) }.padding(10.dp))
+        }
         Page {
             Row(
                 Modifier.fillMaxWidth().heightIn(min = 48.dp).background(C.Surface, RoundedCornerShape(14.dp)).clickable { go(RPage.Search()) }.padding(horizontal = 14.dp),
@@ -363,7 +365,7 @@ internal fun DetailScreen(h: ReadLogic.Hit, onBack: () -> Unit, openBook: (Strin
             h.webUrl?.let { url ->
                 ListCard { RowItem("在网页上打开", "", url.removePrefix("https://").substringBefore('/')) { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) } }
             }
-            Text("听书（机器朗读 / 真人有声书）在下一个版本加上。", color = C.Muted, fontSize = 12.sp, modifier = Modifier.padding(4.dp))
+            Text("听书（机器朗读 / 真人有声书）在后续版本加上。", color = C.Muted, fontSize = 12.sp, modifier = Modifier.padding(4.dp))
         }
     }
 }
