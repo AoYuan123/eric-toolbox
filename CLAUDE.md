@@ -164,6 +164,12 @@ app/src/test/.../GoldLogicTest.kt、DateLogicTest.kt、TrialLogicTest.kt   单�
 - 11-02 实测：不登录下载 Gitee 发行版附件可行（99MB 附件跳转 foruda.gitee.com 正常下载）。
 - 备选方案记录：阿里云 OSS 自 2024-08-05 起新建 Bucket 用默认域名下载 APK 会被拦截，必须绑定已 ICP 备案的域名。
 
+- **11-07 起主通道改为用户电脑中转**（Windows，`文档\EricToolbox-GiteeSync\`）：任务计划程序 `EricToolbox-GiteeSync` 每 5 分钟跑 `sync.ps1`（经 run-hidden.vbs 静默）→ 查 GitHub 最新版 → Gitee 没有就下载到本机再上传。
+  - 首次实测 v1.0.33：下载 14.2MB 用 51 秒，上传 Gitee 5 秒。同一天 GitHub Actions→Gitee 上传连续多次卡死 7 分钟 0 字节。
+  - Gitee 令牌由用户在 install.bat 里自己粘贴，DPAPI 加密存 token.dat，Claude 不经手；uninstall.bat 删除任务和令牌。
+  - 坑：PowerShell 5.1 读 curl.exe 输出默认按 GBK，会把 UTF-8 中文连同 JSON 读坏，脚本里已设 `[Console]::OutputEncoding = UTF8`；Invoke-WebRequest 必须关进度条。
+  - 电脑关机时 GitHub 的 gitee-sync.yml 仍作备用（任务内重试最长 2 小时，见 .github/scripts/gitee-sync.sh）。
+
 ## 8. 邮件提醒（11-02 用户确认预览后上线）
 - 入口「我的 › 邮件提醒」（ui/MailScreen.kt）。Notifier.alert 统一分发：写记录 → 手机通知（可关）→ 邮件（类别 gold / trials / system，按收件人勾选）。
 - 授权码存在 SharedPreferences "mail_secret"，不在 Store.allNames()，所以不进备份；其他邮件设置存 global（mail_*），可备份。
