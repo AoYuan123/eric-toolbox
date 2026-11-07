@@ -61,6 +61,9 @@ object Listen {
     private var player: ExoPlayer? = null
     private var focus: AudioFocusRequest? = null
     private var gen = 0
+    /** 已交给引擎排队的最后一句（提前排队，让 AI 引擎在读当前句时就把后面几句合成好，消除句间停顿） */
+    private var queuedTo = -1
+    private const val AHEAD = 4
 
     val active get() = bookId != null
     val current: ReadLogic.Sentence? get() = sentences.getOrNull(index)
@@ -103,7 +106,7 @@ object Listen {
                 ttsReady = status == TextToSpeech.SUCCESS
                 if (!ttsReady) { message = "手机没有可用的语音引擎（系统设置 › 文字转语音）"; playing = false; ListenService.refresh(app); return@post }
                 tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
-                    override fun onStart(id: String) {}
+                    override fun onStart(id: String) { main.post { onSentenceStart(id) } }
                     override fun onDone(id: String) { main.post { onSentenceDone(id) } }
                     @Deprecated("Deprecated in Java") override fun onError(id: String) { main.post { onSentenceDone(id) } }
                     override fun onError(id: String, code: Int) { main.post { message = "朗读出错（代码 $code），已跳过这一句"; onSentenceDone(id) } }
@@ -142,20 +145,47 @@ object Listen {
         if (playing && mode == Mode.TTS) speakCurrent()
     }
 
+    /** 从当前句重新开始：清空引擎队列，再把当前句和后面几句一起排进去。 */
     private fun speakCurrent() {
         val t = tts ?: return
-        val s = current ?: run { onChapterEnd(); return }
+        if (current == null) { onChapterEnd(); return }
         gen++
         t.setSpeechRate(speed)
-        t.speak(s.text, TextToSpeech.QUEUE_FLUSH, null, "s$gen")
+        t.speak(sentences[index].text, TextToSpeech.QUEUE_FLUSH, null, "g${gen}_$index")
+        queuedTo = index
+        fillQueue()
         tick++
         saveProgress()
     }
 
-    private fun onSentenceDone(id: String) {
-        if (!playing || mode != Mode.TTS || id != "s$gen") return
+    /** 保持引擎队列里有当前句之后的 AHEAD 句。 */
+    private fun fillQueue() {
+        val t = tts ?: return
+        while (queuedTo < sentences.size - 1 && queuedTo < index + AHEAD) {
+            queuedTo++
+            t.speak(sentences[queuedTo].text, TextToSpeech.QUEUE_ADD, null, "g${gen}_$queuedTo")
+        }
+    }
+
+    private fun parse(id: String): Int? {
+        val p = id.removePrefix("g").split('_')
+        if (p.size != 2 || p[0].toIntOrNull() != gen) return null
+        return p[1].toIntOrNull()
+    }
+
+    /** 引擎真正开始读某一句：高亮跟着走，再补充队列。 */
+    private fun onSentenceStart(id: String) {
+        if (!playing || mode != Mode.TTS) return
+        val i = parse(id) ?: return
         if (sleepAt > 0 && System.currentTimeMillis() >= sleepAt) { sleepAt = 0; pause(); message = "定时到了，已暂停"; return }
-        if (index + 1 < sentences.size) { index++; speakCurrent() } else onChapterEnd()
+        if (i != index) { index = i; tick++; saveProgress() }
+        fillQueue()
+    }
+
+    private fun onSentenceDone(id: String) {
+        if (!playing || mode != Mode.TTS) return
+        val i = parse(id) ?: return
+        if (i >= sentences.size - 1) onChapterEnd()
     }
 
     private fun onChapterEnd() {
