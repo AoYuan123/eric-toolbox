@@ -115,6 +115,41 @@ object Translator {
         done
     }
 
+    // ---------- 翻译板块：任意方向、整段翻译 ----------
+
+    /** 只要填了 APP ID 和密钥就能用（不受临床试验里“翻译开关”影响）。 */
+    fun hasCredentials(ctx: Context) = appId(ctx).isNotBlank() && hasKey(ctx)
+
+    private fun dirKey(from: String, to: String, line: String) = if (from == "en" && to == "zh") norm(line) else "$from>$to|${norm(line)}"
+
+    /**
+     * 翻译一段文字（可多行，保留分行）。from 可为 auto。返回 (译文, 错误)。
+     * 每行单独缓存：同一句话翻过一次，再翻不联网、不计额度。
+     */
+    suspend fun translateText(ctx: Context, text: String, from: String, to: String): Pair<String?, String?> = lock.withLock {
+        if (!hasCredentials(ctx)) return null to "还没填百度翻译的 APP ID 和密钥：到「临床试验 › 翻译设置」填写（各板块共用）"
+        val lines = text.replace("\r\n", "\n").split('\n')
+        val m = load(ctx)
+        val todo = lines.map { it.trim() }.filter { it.isNotEmpty() && dirKey(from, to, it) !in m }.distinct()
+        // 超长的行（> 单次上限）切成小块
+        val pieces = todo.flatMap { l -> if (l.length <= BATCH_CHARS) listOf(l) else l.chunked(BATCH_CHARS) }
+        var err: String? = null
+        for (batch in batches(pieces)) {
+            val q = batch.joinToString("\n")
+            if (usedThisMonth(ctx) + q.length > cap(ctx)) { err = "本月已用 ${usedThisMonth(ctx)} 字符，到达上限 ${cap(ctx)}（可在临床试验 › 翻译设置里调整）"; break }
+            val res = try { request(appId(ctx), secret(ctx).getString("key", "") ?: "", q, from, to) } catch (e: Exception) { err = e.message ?: "网络错误"; break }
+            addUsage(ctx, q.length)
+            res.forEach { (src, dst) -> m[dirKey(from, to, src)] = dst }
+            delay(150)
+        }
+        persist(ctx, m)
+        val out = lines.map { l -> val t = l.trim(); if (t.isEmpty()) "" else m[dirKey(from, to, t)] ?: (if (t.length > BATCH_CHARS) t.chunked(BATCH_CHARS).joinToString("") { m[dirKey(from, to, it)] ?: "" } else null) }
+        if (out.any { it == null }) return (null to (err ?: "部分内容没翻译出来，请重试"))
+        out.joinToString("\n").trim() to null
+    }
+
+    fun monthUsed(ctx: Context) = usedThisMonth(ctx)
+
     /** 测试：翻译一句示例标题。 */
     suspend fun test(ctx: Context): String {
         if (appId(ctx).isBlank() || !hasKey(ctx)) return "请先填写 APP ID 和密钥"
@@ -129,9 +164,9 @@ object Translator {
         }
     }
 
-    private suspend fun request(appId: String, key: String, q: String): List<Pair<String, String>> {
+    private suspend fun request(appId: String, key: String, q: String, from: String = "en", to: String = "zh"): List<Pair<String, String>> {
         val salt = System.currentTimeMillis().toString()
-        val form = "q=${enc(q)}&from=en&to=zh&appid=${enc(appId)}&salt=$salt&sign=${sign(appId, q, salt, key)}"
+        val form = "q=${enc(q)}&from=$from&to=$to&appid=${enc(appId)}&salt=$salt&sign=${sign(appId, q, salt, key)}"
         return parse(Http.postForm(API, form, timeoutMs = 15_000))
     }
 

@@ -5,6 +5,7 @@ import com.eric.toolbox.modules.datecalc.DateCalcModule
 import com.eric.toolbox.modules.gold.GoldModule
 import com.eric.toolbox.modules.pan.PanModule
 import com.eric.toolbox.modules.read.ReadModule
+import com.eric.toolbox.modules.translate.TranslateModule
 import com.eric.toolbox.modules.trials.TrialModule
 import com.eric.toolbox.modules.vod.VodModule
 import com.eric.toolbox.modules.zlib.ZlibModule
@@ -18,6 +19,7 @@ object ModuleRegistry {
         TrialModule,
         DateCalcModule,
         ReadModule,
+        TranslateModule,
         PanModule,
         VodModule,
         ZlibModule,
