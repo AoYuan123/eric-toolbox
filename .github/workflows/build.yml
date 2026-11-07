@@ -77,8 +77,10 @@ jobs:
           name: ${{ steps.apk.outputs.path }}
           path: ${{ steps.apk.outputs.path }}
 
+      # 只发 main 的版本。手动 dispatch 到功能分支只是为了验证能编译通过，
+      # 要是这里漏判分支，验证一次就会凭空多出一个 Release，更新提示也会推给用户。
       - name: Publish release
-        if: steps.key.outputs.signed == 'true'
+        if: steps.key.outputs.signed == 'true' && github.ref == 'refs/heads/main'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
