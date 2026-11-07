@@ -79,7 +79,7 @@ object ReadPrefs {
             font = p.getString("font", d.font)!!,
             theme = p.getString("theme", d.theme)!!,
             paged = p.getBoolean("paged", d.paged),
-            volumeKeys = p.getBoolean("volume_keys", d.volumeKeys),
+            volumeKeys = p.getBoolean("volume_keys2", d.volumeKeys), // 11-07 用户不要音量键翻页：换新键名，默认关
             keepScreenOn = p.getBoolean("keep_on", d.keepScreenOn),
             autoNight = p.getBoolean("auto_night", d.autoNight),
             tapSides = p.getBoolean("tap_sides", d.tapSides),
@@ -91,7 +91,7 @@ object ReadPrefs {
         p(ctx).edit()
             .putInt("font_size", s.fontSize).putFloat("line_height", s.lineHeight.toFloat()).putInt("margin", s.margin)
             .putString("font", s.font).putString("theme", s.theme).putBoolean("paged", s.paged)
-            .putBoolean("volume_keys", s.volumeKeys).putBoolean("keep_on", s.keepScreenOn)
+            .putBoolean("volume_keys2", s.volumeKeys).putBoolean("keep_on", s.keepScreenOn)
             .putBoolean("auto_night", s.autoNight).putBoolean("tap_sides", s.tapSides).putBoolean("tap_lookup", s.tapLookup).apply()
     }
 

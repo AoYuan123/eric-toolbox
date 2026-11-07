@@ -30,6 +30,13 @@
         替代方案（运行时域名白名单）在 Android 上做不到 —— usesCleartextTraffic 只能编译期决定，
         静态 domain 名单又要求每换一个源就改代码重发版，对这个 App 不成立。
     -->
+    <!-- Android 11+ 软件包可见性：不声明就连不上手机的语音引擎（11-07 真机朗读、发音没声音） -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.TTS_SERVICE" />
+        </intent>
+    </queries>
+
     <application
         android:name=".App"
         android:allowBackup="false"

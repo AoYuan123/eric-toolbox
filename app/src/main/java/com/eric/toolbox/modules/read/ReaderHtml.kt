@@ -13,7 +13,7 @@ data class ReadSettings(
     val font: String = "serif", // serif / sans / system
     val theme: String = "paper", // paper / green / white / night
     val paged: Boolean = true,
-    val volumeKeys: Boolean = true,
+    val volumeKeys: Boolean = false,
     val keepScreenOn: Boolean = true,
     val autoNight: Boolean = false,
     val tapSides: Boolean = true,
@@ -82,9 +82,9 @@ object ReaderHtml {
     }
 
     /** 阅读页脚本。原生端通过 R（JavascriptInterface）接收：ready(总页数, 当前页)、page(当前页, 总页数)、tap(区域)、edge(方向)。 */
-    fun js(paged: Boolean, tapSides: Boolean, tapLookup: Boolean = false): String = """
+    fun js(paged: Boolean, tapSides: Boolean, tapLookup: Boolean = false, margin: Int = 22): String = """
         (function(){
-          var paged=$paged, sides=$tapSides, tapLook=$tapLookup;
+          var paged=$paged, sides=$tapSides, tapLook=$tapLookup, M=$margin;
           var W=function(){return window.innerWidth;};
           function pages(){ if(!paged){return 1;} var sw=document.scrollingElement.scrollWidth; return Math.max(1, Math.round(sw / W())); }
           function cur(){ return paged ? Math.round(window.scrollX / W()) : 0; }
@@ -188,9 +188,17 @@ object ReaderHtml {
           function pad(){ if(!paged) return; var old=document.getElementById('__pad'); if(old) old.remove();
             var w=W(), sw=document.scrollingElement.scrollWidth, p=Math.max(1, Math.round(sw / w));
             if(sw < p*w){ var d=document.createElement('div'); d.id='__pad'; d.style.cssText='position:absolute;top:0;width:1px;height:1px;left:'+(p*w-1)+'px'; document.documentElement.appendChild(d); } }
-          function start(){ pad(); R.ready(pages()); }
+          // 部分手机 WebView 在阅读区还没排好时把 100vh 算成接近 0、之后不再更新，导致每页只有一行（11-07 真机）：改用实际像素
+          function size(){ if(!paged) return true; var h=window.innerHeight, w=window.innerWidth; if(h<80||w<80) return false;
+            var d=document.documentElement, b=document.body;
+            d.style.setProperty('height',h+'px','important'); b.style.setProperty('height',h+'px','important');
+            b.style.setProperty('column-width',(w-2*M)+'px','important'); b.style.setProperty('column-gap',(2*M)+'px','important');
+            document.querySelectorAll('img,svg').forEach(function(e){ e.style.setProperty('max-height',(h-8)+'px','important'); });
+            return true; }
+          var started=false;
+          function start(){ if(started) return; if(!size()){ setTimeout(start,100); return; } started=true; pad(); R.ready(pages()); }
           if(document.readyState==='complete'){ setTimeout(start,30); } else { window.addEventListener('load', function(){ setTimeout(start,30); }); }
-          window.addEventListener('resize', function(){ setTimeout(function(){ pad(); report(); },50); });
+          window.addEventListener('resize', function(){ setTimeout(function(){ var p=paged?cur():0; size(); pad(); if(paged) __go(p,false); report(); },50); });
         })();
     """.trimIndent()
 
@@ -200,7 +208,7 @@ object ReaderHtml {
         h = inlineHandlers.replace(h, "")
         val head = "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no\">" +
             "<style id=\"__reader\">${css(s, theme)}</style>"
-        val tail = "<script>${js(s.paged, s.tapSides, s.tapLookup)}</script>"
+        val tail = "<script>${js(s.paged, s.tapSides, s.tapLookup, s.margin)}</script>"
         val hm = headOpen.find(h)
         val htm = htmlOpen.find(h)
         h = when {

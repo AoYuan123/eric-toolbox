@@ -179,6 +179,9 @@ fun ReaderScreen(bookId: String, onBack: () -> Unit) {
         onDispose { KeyHooks.handler = null }
     }
 
+    // 听书出错（没有语音引擎、语言不支持等）直接弹出来，别只藏在面板里
+    LaunchedEffect(Listen.message) { Listen.message?.let { if (Listen.bookId == bookId) Toast.makeText(ctx, it, Toast.LENGTH_LONG).show() } }
+
     BackHandler {
         when {
             pick != null -> pick = null
@@ -294,7 +297,12 @@ fun ReaderScreen(bookId: String, onBack: () -> Unit) {
                                 return true
                             }
                         }
-                        post { load(chapter, fraction) }
+                        // 等阅读区有了实际尺寸再加载章节，否则分页按 0 高度排
+                        if (width > 0 && height > 0) post { load(chapter, fraction) } else addOnLayoutChangeListener(object : View.OnLayoutChangeListener {
+                            override fun onLayoutChange(v: View, l: Int, t: Int, r: Int, b: Int, ol: Int, ot: Int, orr: Int, ob: Int) {
+                                if (r - l > 0 && b - t > 0) { v.removeOnLayoutChangeListener(this); v.post { load(chapter, fraction) } }
+                            }
+                        })
                     }
                 },
                 update = { it.keepScreenOn = rs.keepScreenOn; it.setBackgroundColor(android.graphics.Color.parseColor(col.bg)) },
