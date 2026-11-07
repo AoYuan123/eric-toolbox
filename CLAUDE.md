@@ -74,7 +74,7 @@ app/src/main/java/com/eric/toolbox/
 app/src/test/.../GoldLogicTest.kt、DateLogicTest.kt、TrialLogicTest.kt   单元测试（含实测数据）
 ```
 
-### 另外两个模块（11-01 加入，结构清单里原来没写）
+### 另外三个模块（11-01 / 11-07 加入，结构清单里原来没写）
 
 ```
 ├── modules/pan/           网盘搜索，显示名「juicePans」（id 仍是 pan，别改 id——会清空已存设置）
@@ -93,7 +93,19 @@ app/src/test/.../GoldLogicTest.kt、DateLogicTest.kt、TrialLogicTest.kt   单�
     ├── VodDetail.kt       详情、线路（带画质标签）、「跳到最高画质」
     ├── PlayerActivity.kt  全屏横屏播放，Media3 ExoPlayer
     └── core/              ConfigParser（TVBox 配置解析）/ SiteClient / EpisodeParser / SearchHub / Quality / TmdbClient
+└── modules/zlib/         Z-Library 入口。只拼搜索 URL 交给系统浏览器，App 内不加载站点
+    ├── ZlibModule.kt      模块入口 + 站点列表 / 当前站点 / 搜索模板 / 最近搜过 / 探测记录
+    ├── ZlibScreen.kt      搜索框 + 站点 chip + 最近搜过 + 快捷入口
+    ├── ZlibDomains.kt     站点增删与切换、「试搜」验证搜索模板
+    └── core/SiteProbe.kt  连通性探测（三态）+ 域名规范化
 ```
+
+**zlib 的边界（改动前务必守住）**
+- **不做内置 WebView**：站点前置 Cloudflare 人机校验（`Checking your browser`），WebView 里基本过不去；一律 `Intent.ACTION_VIEW` 交给系统浏览器，顺带走系统代理。
+- **不做账号登录**：Z-Library 下载必须登录，但账号密码只能留在浏览器里，App 一个字都不收。
+- **不内置「官方域名清单」**：Z-Library 没有唯一官网，是一组轮换镜像 + 个人域名机制。默认只给 z-library.biz / z-library.sk 当起点，用户自己加。
+- **探测失败只允许说「可能需代理」，永远不能说「域名失效」**。墙内直连境外站点失败是常态（DNS 污染、SNI 阻断），同一个域名换网络环境结论就反过来——11-07 就栽在拿本机 curl 超时当「域名已死」的证据上，别在 App 里重犯。
+- 搜索路径 `/s/{q}` 沿用 Z-Library 一贯格式，但**没能在第三方证据里确认**，所以做成可改的模板，并配了「试搜」按钮自验。
 
 **pan / vod 的边界（改动前务必守住）**
 - `type=3` Spider 一律跳过：它要用 DexClassLoader 把远程 dex 当代码跑，等于让别人在你进程里执行任意程序。影视仓类 App 靠这个吃饭，这里不做。
