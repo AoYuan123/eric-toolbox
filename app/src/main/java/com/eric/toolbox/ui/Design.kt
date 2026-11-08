@@ -105,7 +105,8 @@ private val NARROW: Map<Char, IntArray> = mapOf( // 1 列宽的标点
 @Composable
 fun DotMatrix(text: String, dot: Dp = 6.dp, color: Color = C.Text, dim: Boolean = true, modifier: Modifier = Modifier) {
     val chars = text.toCharArray().filter { GLYPHS.containsKey(it) || NARROW.containsKey(it) }
-    val cols: Int = chars.sumOf { c: Char -> if (NARROW.containsKey(c)) 2 else 6 } - 1
+    var cols = -1
+    for (c in chars) cols += if (NARROW.containsKey(c)) 2 else 6
     val off = color.copy(alpha = if (C.palette.isLight) 0.07f else 0.06f)
     Canvas(modifier.size(dot * cols.coerceAtLeast(1), dot * 7)) {
         val step = dot.toPx(); val r = step * 0.38f
