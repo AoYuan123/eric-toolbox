@@ -20,7 +20,7 @@ import java.util.zip.ZipInputStream
  * 前两种能下，第三种没法处理（我们没有配置所在的仓库）。
  *
  * 下下来不一定叫 .jar：它就是个 zip，里面通常是 classes.dex（或若干 .dex），
- * 有些加固过的还带 assets/*.so + 加密载荷。所以这里做两件事：
+ * 有些加固过的还带 assets 里的 .so 与加密载荷。所以这里做两件事：
  *   1. 原样存成 .jar 交给 DexClassLoader
  *   2. 解压一份到同名目录——加固壳常常要按相对路径找自己的 assets
  */
