@@ -39,6 +39,8 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.datasource.DataSource
+import androidx.media3.datasource.DataSpec
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
@@ -89,6 +91,10 @@ class PlayerActivity : ComponentActivity() {
 
     /** 插件给每一集指定的请求头（Referer/UA 等），按最终地址存 */
     private val headersByUrl = HashMap<String, Map<String, String>>()
+
+    /** 当前这一集生效的头，DataSource 每次开连接都会读它 */
+    @Volatile
+    private var activeHeaders: Map<String, String> = emptyMap()
 
     /** 换地址是异步的（要问插件），Activity 自己管生命周期比 lifecycleScope 稳妥 */
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
@@ -219,7 +225,7 @@ class PlayerActivity : ComponentActivity() {
 
     private fun setupPlayer() {
         val p = ExoPlayer.Builder(this)
-            .setMediaSourceFactory(DefaultMediaSourceFactory(buildFactory(emptyMap())))
+            .setMediaSourceFactory(DefaultMediaSourceFactory(dataSourceFactory))
             .build()
         p.addListener(object : Player.Listener {
             override fun onPlaybackStateChanged(state: Int) {
@@ -237,19 +243,28 @@ class PlayerActivity : ComponentActivity() {
         readyPlayer = p
     }
 
-    /** 每次换集都可能换一套请求头，所以工厂按集重建 */
-    private fun buildFactory(extra: Map<String, String>): DefaultHttpDataSource.Factory {
-        val factory = DefaultHttpDataSource.Factory()
-            .setUserAgent(ua.ifBlank { VodHttp.DEFAULT_UA })
-            .setAllowCrossProtocolRedirects(true)
-            .setConnectTimeoutMs(15_000)
-            .setReadTimeoutMs(20_000)
-        val props = HashMap<String, String>()
-        if (referer.isNotBlank()) props["Referer"] = referer
-        props.putAll(extra)
-        if (props.isNotEmpty()) factory.setDefaultRequestProperties(props)
-        return factory
+    /**
+     * 每次换集都可能换一套请求头，所以不能把 header 固定在播放器上。
+     * ExoPlayer 1.6 没有 setMediaSourceFactory，于是自己实现 DataSource：
+     * 开连接前把「当前这一集」的头塞进去，m3u8 的分片请求也一并带上。
+     */
+    private inner class HeaderDataSource : DefaultHttpDataSource(
+        ua.ifBlank { VodHttp.DEFAULT_UA },
+        15_000,
+        20_000,
+        true,
+        null,
+    ) {
+        override fun open(dataSpec: DataSpec): Long {
+            val props = HashMap<String, String>()
+            if (referer.isNotBlank()) props["Referer"] = referer
+            props.putAll(activeHeaders)
+            if (props.isNotEmpty()) setDefaultRequestProperties(props)
+            return super.open(dataSpec)
+        }
     }
+
+    private val dataSourceFactory = DataSource.Factory { HeaderDataSource() }
 
     private fun play(index: Int) {
         if (!hasIndex(index)) return
@@ -281,7 +296,7 @@ class PlayerActivity : ComponentActivity() {
 
     private fun startUrl(u: String) {
         val p = exoPlayer ?: return
-        p.setMediaSourceFactory(DefaultMediaSourceFactory(buildFactory(headersByUrl[u].orEmpty())))
+        activeHeaders = headersByUrl[u].orEmpty()
         p.setMediaItem(MediaItem.Builder().setUri(u).setMediaId(u).build())
         p.prepare()
         p.playWhenReady = true
