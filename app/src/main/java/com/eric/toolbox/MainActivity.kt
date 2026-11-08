@@ -29,6 +29,7 @@ import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.Translate
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.shape.RoundedCornerShape
 import com.eric.toolbox.ui.press
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
