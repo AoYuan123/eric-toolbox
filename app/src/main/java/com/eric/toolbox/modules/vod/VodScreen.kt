@@ -73,6 +73,7 @@ fun VodRoot(onBack: () -> Unit) {
     var strict by remember { mutableStateOf(true) }
     var detailItem by remember { mutableStateOf<VodItem?>(null) }
     var subsOpen by remember { mutableStateOf(false) }
+    var quickOpen by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         VodModule.reload(ctx)
@@ -84,6 +85,17 @@ fun VodRoot(onBack: () -> Unit) {
     }
 
     when {
+        // 添加接口要排在订阅之前判断：加完直接回这里，不用再穿一层订阅页
+        quickOpen -> QuickAddScreen(
+            onBack = { quickOpen = false },
+            onChanged = {
+                scope.launch {
+                    VodModule.reload(ctx)
+                    VodModule.aggregate(ctx)
+                }
+            },
+        )
+
         subsOpen -> SubscriptionScreen(
             onBack = {
                 subsOpen = false
@@ -108,7 +120,10 @@ fun VodRoot(onBack: () -> Unit) {
                 when (tab) {
                     VodTab.Browse -> BrowsePane(v, strict) { detailItem = it }
                     VodTab.Search -> SearchPane(v, strict, { strict = it }) { detailItem = it }
-                    VodTab.Mine -> MinePane(onOpenSubs = { subsOpen = true })
+                    VodTab.Mine -> MinePane(
+                        onOpenSubs = { subsOpen = true },
+                        onOpenQuickAdd = { quickOpen = true },
+                    )
                 }
             }
         }

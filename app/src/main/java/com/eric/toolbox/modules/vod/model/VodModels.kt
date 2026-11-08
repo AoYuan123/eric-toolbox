@@ -70,6 +70,23 @@ data class VodCategory(
 )
 
 /** 一份完整配置（一个订阅解析后的结果）。 */
+/**
+ * 一份配置里站点的构成统计。
+ *
+ * 只报「可用 N 个」不够用：用户看到「导入成功」但搜不出东西，会以为是 bug。
+ * 必须能回答「一共几个、为什么别的用不了」，所以把跳过原因分开计数。
+ */
+data class ConfigStats(
+    val total: Int = 0,
+    /** type=3，需要执行远程脚本 */
+    val spider: Int = 0,
+    /** api 缺失或不是 http(s) 绝对地址（影视仓常见的 ./lib/xxx.js 就算这类） */
+    val noApi: Int = 0,
+    val usable: Int = 0,
+) {
+    val skipped: Int get() = total - usable
+}
+
 data class VodConfig(
     val subId: String = "",
     val subName: String = "",
@@ -82,6 +99,8 @@ data class VodConfig(
     val timeoutMs: Int = 15_000,
     /** 解析过程中遇到的软提示（如跳过了 Spider 站点），要展示给用户 */
     val warnings: List<String> = emptyList(),
+    /** 站点构成统计，用于「共 N 个 · 可用 M 个」这类结论 */
+    val stats: ConfigStats = ConfigStats(),
 )
 
 /**

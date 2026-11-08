@@ -56,9 +56,9 @@ import java.util.Date
 import java.util.Locale
 import androidx.compose.runtime.collectAsState
 
-/** 「我的」页：订阅入口、TMDB 配置、解析开关、播放记录。 */
+/** 「我的」页：加接口、订阅入口、TMDB 配置、解析开关、播放记录。 */
 @Composable
-fun MinePane(onOpenSubs: () -> Unit) {
+fun MinePane(onOpenSubs: () -> Unit, onOpenQuickAdd: () -> Unit) {
     val ctx = LocalContext.current
     val v by VodModule.state.collectAsState()
     val scope = rememberCoroutineScope()
@@ -76,6 +76,8 @@ fun MinePane(onOpenSubs: () -> Unit) {
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         ListCard {
+            // 放在第一行：这是「装完没源」时最该点的入口，比整份订阅好用
+            RowItem("添加接口", "", "粘一个地址，检测通过就能搜能播", onOpenQuickAdd)
             RowItem("订阅管理", "", "添加 / 刷新 / 删除配置源", onOpenSubs)
             if (!hasPreset) {
                 RowItem("恢复推荐源", "", "内置 5 个可用站点，点一下加回来") {

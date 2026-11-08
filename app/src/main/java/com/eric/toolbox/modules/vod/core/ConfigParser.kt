@@ -1,6 +1,7 @@
 package com.eric.toolbox.modules.vod.core
 
 import java.util.Base64
+import com.eric.toolbox.modules.vod.model.ConfigStats
 import com.eric.toolbox.modules.vod.model.LiveChannel
 import com.eric.toolbox.modules.vod.model.ParseRule
 import com.eric.toolbox.modules.vod.model.SiteType
@@ -95,6 +96,12 @@ object ConfigParser {
             ua = ua,
             timeoutMs = timeoutMs,
             warnings = warnings,
+            stats = ConfigStats(
+                total = arr.length(),
+                spider = spiderNames.size,
+                noApi = badApiNames.size,
+                usable = sites.size,
+            ),
         )
     }
 

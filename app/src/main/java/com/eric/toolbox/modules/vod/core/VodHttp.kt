@@ -15,8 +15,8 @@ import java.util.zip.GZIPInputStream
  *  1. 站点常常靠 UA / Referer 放行，所以默认伪装成浏览器，并允许每个请求覆盖请求头。
  *  2. 报错信息要能直接给用户看，所以统一把异常翻成中文。
  *
- * 注意：Manifest 里 usesCleartextTraffic=false，明文 http 一律连不通，
- * 这是安全基线，不会因为某个源站是 http 而打开。
+ * 注意：明文 http 自 v1.0.22 起已放开（影视源大多是 http，用户拍板），
+ * 理由写在 AndroidManifest 的 usesCleartextTraffic 注释里，别改回 false。
  */
 object VodHttp {
 
@@ -90,7 +90,7 @@ object VodHttp {
             val msg = e.message.orEmpty()
             when {
                 msg.contains("Cleartext", ignoreCase = true) ->
-                    "App 不允许明文 http 连接，请改用 https 的源"
+                    "系统拦截了明文 http（Manifest 的 usesCleartextTraffic 被改过？）"
                 msg.isBlank() -> e.javaClass.simpleName
                 else -> msg
             }

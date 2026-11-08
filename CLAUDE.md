@@ -89,11 +89,13 @@ app/src/test/.../GoldLogicTest.kt、DateLogicTest.kt、TrialLogicTest.kt   单�
 └── modules/vod/          在线影视。内置推荐源（远程清单可换），搜到即播，不下载不转存
     ├── VodModule.kt       模块入口 + 订阅/画质偏好 + 聚合首页
     ├── VodSubsScreen.kt   订阅管理：远程 URL、本地粘贴、导入文件；支持「图种」和 `//` 注释
+    ├── VodQuickAdd.kt     添加接口：粘一条链接，当场判别类型、实测、勾选入库
     ├── VodScreen.kt       聚合首页（全部站点混排）+ 搜索 + 画质门槛（不限/720P+/1080P+/4K）
     ├── VodDetail.kt       详情、线路（带实测码率）、「换到最好的一条」
     ├── PlayerActivity.kt  全屏横屏播放，Media3 ExoPlayer
     └── core/              ConfigParser / SiteClient / EpisodeParser / SearchHub / Quality / TmdbClient
                            BuiltinSources（推荐源播种 + 远程清单）/ LineProbe（实测码率与字幕轨）
+                           QuickAdd（链接嗅探：标准接口 / 整份配置淘金 / 拒绝 Spider）
 └── modules/zlib/         Z-Library 入口。只拼搜索 URL 交给系统浏览器，App 内不加载站点
     ├── ZlibModule.kt      模块入口 + 站点列表 / 当前站点 / 搜索模板 / 最近搜过 / 探测记录
     ├── ZlibScreen.kt      搜索框 + 站点 chip + 最近搜过 + 快捷入口
@@ -203,6 +205,12 @@ app/src/test/.../GoldLogicTest.kt、DateLogicTest.kt、TrialLogicTest.kt   单�
 - 现在 `BuiltinSources` 会播种一条名为「推荐源」的本地订阅，装完即可搜、可播。三条红线没变：**只收 type=1（JSON）站、绝不收 Spider、只播不存（不下载不转存不缓存）**。
 - 地址优先从 `vod-subscription/recommended.json` 拉（jsDelivr → GitHub raw → ghproxy 依次回退，24 小时节流）。换域名改那个文件即可，**不用发新版**。
 - 用户删掉「推荐源」后不会被偷偷加回来（`seeded` 标记只播一次）；「我的」页有「恢复推荐源」手动入口。
+
+**用户粘一条链接时，三种东西别混为一谈（`QuickAdd` 就是干这个的）**
+- **标准苹果CMS接口**（`…/api.php/provide/vod`）：`?ac=list` 能返回 `list` 或 `class`，直接收成站点，能搜能播。这是唯一「粘了就能用」的类型。
+- **整份 TVBox / 影视仓配置**：里面混着 Spider 和标准接口，可用率差别极大。2026-11-08 实测：`gao/js.json` 298 站**全 Spider、0 可用**；`0827.json` 33 站里 6 个标准接口；`0821.json` 86 站里 7 个。所以 `QuickAdd` 会把候选逐个实测再让用户勾选，**不要**整份塞进订阅了事。
+- **Spider / drpy 脚本**（`./lib/drpy2.min.js` + `./js/xxx.js`）：影视仓能跑 298 个站是因为它内置 JS 运行时执行远程脚本。本 App 不做，既是安全红线（等于执行任意代码），也不值得为它塞一个 JS 引擎。
+- 统计口径看 `VodConfig.stats`（total / spider / noApi / usable），界面文案从这里来，**不要用正则从 `warnings` 里抠数字**。
 - 站点标的清晰度**不可信**（实测「1080P」常是 1080×608、800kbps）。`LineProbe` 在详情页实测每条线路的真实码率/分辨率/字幕轨，异步、失败不影响播放。
 - 采集站片源**普遍没有独立字幕轨**（实测 5 个源 SUBTITLES 计数全 0），字幕是烧在画面里的硬字幕。想做「选字幕」只能走本地字幕文件或 OpenSubtitles，别指望片源自带。
 
