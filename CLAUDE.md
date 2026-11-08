@@ -166,6 +166,15 @@ app/src/test/.../GoldLogicTest.kt、DateLogicTest.kt、TrialLogicTest.kt   单�
 - 不留垃圾：App 启动时 `ApkInstaller.cleanup` 删已安装的更新包和残片。
 - 本会话没有权限编辑 GitHub Release 的说明（API 403），发版说明来自最后一次提交信息——大版本推送前把提交信息写好。
 
+### v2.1（11-08，版本号 2.1.<run#>）
+- 学英语补全 `modules/english/EnglishPractice.kt`：练口语（8 个场景，AI 每轮返回 JSON {reply,better,why}，结束出报告并可把表达加入生词本；英文识别用系统 SpeechRecognizer en-US，没有就打字）、
+  学发音（MediaRecorder 录到 cache/pron.m4a、离开页面删除；A/B=先 TTS 再放录音；识别检查用 EnglishLogic.wordCheck 标红没识别出的词；6 组易错音）。首页「今天的安排」：复习→新词→口语一场（本地规则，不花钱）。
+- 体检 `ui/HealthScreen.kt`（Route.Health）：后台/保活/通知/金价/试验/TTS 引擎/语音识别/AI 密钥与花费/存储/闪退 + 网络通道检测（Gitee、GitHub、DeepSeek 余额），「复制全部」生成文字报告。
+- 闪退记录 `core/CrashLog.kt`：未捕获异常写 files/crash/（留 5 份），下次启动记一条系统提醒。
+- AI 管家：联网工具 web_search / web_fetch（DeepSeek 官方 POST /v1/tools/search、/v1/tools/fetch，同一把密钥，按 5 元/千次记花费；组名 web，老用户自动补上）；
+  本地快答 `AiQuickAnswer`（短句问金价/余额/提醒/背词/试验直接回答，不调用模型）；设置页查余额（GET /user/balance）。搜索返回字段按文档猜的 results[].title/url/snippet|summary，真机没验证过。
+- 电脑中转 sync.ps1：下载改为后台作业，5 分钟没完成就放弃，下轮自动重试（11-08 改，写入用户电脑）。
+
 **zlib 的边界（改动前务必守住）**
 - **不做内置 WebView**：站点前置 Cloudflare 人机校验（`Checking your browser`），WebView 里基本过不去；一律 `Intent.ACTION_VIEW` 交给系统浏览器，顺带走系统代理。
 - **不做账号登录**：Z-Library 下载必须登录，但账号密码只能留在浏览器里，App 一个字都不收。

@@ -65,7 +65,7 @@ jobs:
       - name: Rename APK
         id: apk
         run: |
-          VER="2.0.${GITHUB_RUN_NUMBER}"
+          VER="2.1.${GITHUB_RUN_NUMBER}"
           SUFFIX=$([ "${{ steps.key.outputs.signed }}" = "true" ] && echo "" || echo "-test")
           OUT="EricToolbox-v${VER}${SUFFIX}.apk"
           cp app/build/outputs/apk/release/app-release.apk "$OUT"
