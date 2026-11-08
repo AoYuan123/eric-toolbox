@@ -175,6 +175,13 @@ app/src/test/.../GoldLogicTest.kt、DateLogicTest.kt、TrialLogicTest.kt   单�
   本地快答 `AiQuickAnswer`（短句问金价/余额/提醒/背词/试验直接回答，不调用模型）；设置页查余额（GET /user/balance）。搜索返回字段按文档猜的 results[].title/url/snippet|summary，真机没验证过。
 - 电脑中转 sync.ps1：下载改为后台作业，5 分钟没完成就放弃，下轮自动重试（11-08 改，写入用户电脑）。
 
+### v2.1.55（11-08）
+- 底部导航五格：首页 · 学英语 · AI（居中凸起，GraphicEq 图标；点=进 AI，长按=说话）· 翻译（跳 Module("translate")，不是 tab）· 我的。
+- 话筒居中大圆键：AI 对话页、练口语、学发音。
+- AI 多对话：files/ai/chats/<id>.json + index.json，当前 id 存 mod_ai.chat_cur；老 chat.json 自动迁入。AiAgent.newChat/openChat/deleteChat；对话页右上 ＋/历史/设置，历史页长按删除，最多 100 个。
+- 首页：金价改大号数字（整数 46sp + 小数灰色）+ 涨跌色块 + 整行走势；翻译卡在金价下面，临床试验在最底部。
+- 电脑中转偶发 GitHub 下载 504（17:12、17:45、18:12 起连续多次），等下一轮自动重试即可。
+
 **zlib 的边界（改动前务必守住）**
 - **不做内置 WebView**：站点前置 Cloudflare 人机校验（`Checking your browser`），WebView 里基本过不去；一律 `Intent.ACTION_VIEW` 交给系统浏览器，顺带走系统代理。
 - **不做账号登录**：Z-Library 下载必须登录，但账号密码只能留在浏览器里，App 一个字都不收。
