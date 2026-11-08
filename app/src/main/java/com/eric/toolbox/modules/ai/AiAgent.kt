@@ -30,10 +30,14 @@ object AiAgent {
 
     class Pending(val calls: List<Pair<AiLogic.ToolCall, AiTools.Plan>>)
 
+    /** 当前对话的编号（多对话：新建 / 历史里切换）。 */
+    var chatId by mutableStateOf(""); private set
+
     fun load(ctx: Context) {
         if (loaded) return
         loaded = true
-        history.clear(); history.addAll(AiStore.loadChat(ctx))
+        chatId = AiStore.currentId(ctx)
+        history.clear(); history.addAll(AiStore.loadChat(ctx, chatId))
         // 上次退出时有没处理完的确认：当作取消，保证每个 tool_call 都有结果
         val ids = history.filter { it.role == "tool" }.mapNotNull { it.toolCallId }.toSet()
         val dangling = history.lastOrNull { it.role == "assistant" && it.toolCalls.isNotEmpty() }?.toolCalls?.filter { it.id !in ids }.orEmpty()
@@ -43,7 +47,29 @@ object AiAgent {
         }
     }
 
-    fun clear(ctx: Context) { history.clear(); pending = null; error = null; AiStore.saveChat(ctx, history) }
+    /** 新开对话（当前对话已自动保存在「历史」里）。 */
+    fun newChat(ctx: Context) {
+        if (busy) return
+        if (pending != null) cancel(ctx)
+        save(ctx)
+        chatId = AiStore.newId(ctx); history.clear(); pending = null; error = null
+    }
+
+    fun openChat(ctx: Context, id: String) {
+        if (busy) return
+        if (pending != null) cancel(ctx)
+        save(ctx)
+        loaded = false; AiStore.setCurrent(ctx, id); load(ctx); error = null
+    }
+
+    fun deleteChat(ctx: Context, id: String) {
+        AiStore.deleteChat(ctx, id)
+        if (id == chatId) { chatId = AiStore.newId(ctx); history.clear(); pending = null; error = null }
+    }
+
+    private fun save(ctx: Context) = AiStore.saveChat(ctx, chatId, history.toList())
+
+    fun clear(ctx: Context) = newChat(ctx)
 
     private fun systemPrompt(ctx: Context): String {
         val now = SimpleDateFormat("yyyy-MM-dd EEEE HH:mm", Locale.CHINA).apply { timeZone = TimeZone.getTimeZone("Asia/Shanghai") }.format(Date())
@@ -66,14 +92,14 @@ object AiAgent {
         if (t.isEmpty() || busy || pending != null) return
         error = null
         history += AiLogic.Msg("user", t, at = System.currentTimeMillis())
-        AiStore.saveChat(ctx, history)
+        save(ctx)
         val quick = AiQuickAnswer.match(t)
         if (quick != null) {
             busy = true
             scope.launch {
                 val ans = try { AiQuickAnswer.answer(ctx, quick) } catch (e: Exception) { "查询出错：${e.message}" }
                 history += AiLogic.Msg("assistant", ans + "\n\n" + com.eric.toolbox.ui.tr("（本地快答，没有调用 AI，不花钱）", "(Answered locally — no AI cost)"), at = System.currentTimeMillis())
-                replied++; busy = false; AiStore.saveChat(ctx, history)
+                replied++; busy = false; save(ctx)
             }
             return
         }
@@ -90,7 +116,7 @@ object AiAgent {
                     is java.net.UnknownHostException -> "连不上服务器，检查一下网络"
                     else -> e.message ?: "出错了"
                 }
-            } finally { busy = false; AiStore.saveChat(ctx, history) }
+            } finally { busy = false; save(ctx) }
         }
     }
 
@@ -141,7 +167,7 @@ object AiAgent {
                 history += AiLogic.Msg("tool", text, toolCallId = call.id, at = System.currentTimeMillis())
             }
             pending = null
-            AiStore.saveChat(ctx, history)
+            save(ctx)
             busy = false
             launchRun(ctx)
         }
@@ -152,7 +178,7 @@ object AiAgent {
         p.calls.forEach { (c, _) -> history += AiLogic.Msg("tool", "用户取消了这个改动，没有执行", toolCallId = c.id, at = System.currentTimeMillis()) }
         history += AiLogic.Msg("assistant", "好的，已取消，没有做任何改动。", at = System.currentTimeMillis())
         pending = null
-        AiStore.saveChat(ctx, history)
+        save(ctx)
     }
 
     /** 从工具结果里取出操作记录编号，用来在对话里显示「撤销」。 */

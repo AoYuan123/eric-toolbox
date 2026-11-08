@@ -26,10 +26,13 @@ import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ReceiptLong
 import androidx.compose.material.icons.outlined.Home
+import androidx.compose.material.icons.outlined.School
+import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.Translate
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.shape.RoundedCornerShape
+import com.eric.toolbox.ui.tr
 import com.eric.toolbox.ui.press
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -183,22 +186,27 @@ private fun BottomBar(current: Route, go: (Route) -> Unit) {
     val ctx = LocalContext.current
     UpdateBadge.tick
     val alertsNew = com.eric.toolbox.ui.newRecordCount(ctx) > 0
-    Row(Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, top = 6.dp, bottom = 10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-        Row(Modifier.weight(1f).height(60.dp).background(C.Surface, RoundedCornerShape(30.dp)), verticalAlignment = Alignment.CenterVertically) {
-            TabItem(com.eric.toolbox.ui.tr("首页", "Home"), Icons.Outlined.Home, current == Route.Home, Modifier.weight(1f)) { go(Route.Home) }
-            TabItem(com.eric.toolbox.ui.tr("学英语", "English"), Icons.Outlined.Translate, current == Route.English, Modifier.weight(1f)) { go(Route.English) }
-            TabItem(com.eric.toolbox.ui.tr("我的", "Me"), Icons.Outlined.Person, current == Route.Mine, Modifier.weight(1f), dot = UpdateBadge.has(ctx) || alertsNew) { go(Route.Mine) }
+    // 五格：首页 · 学英语 · [AI 管家，居中凸起] · 翻译 · 我的
+    Box(Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, top = 4.dp, bottom = 10.dp), contentAlignment = Alignment.BottomCenter) {
+        Row(Modifier.fillMaxWidth().height(60.dp).background(C.Surface, RoundedCornerShape(30.dp)), verticalAlignment = Alignment.CenterVertically) {
+            TabItem(tr("首页", "Home"), Icons.Outlined.Home, current == Route.Home, Modifier.weight(1f)) { go(Route.Home) }
+            TabItem(tr("学英语", "English"), Icons.Outlined.School, current == Route.English, Modifier.weight(1f)) { go(Route.English) }
+            Box(Modifier.weight(1.1f))
+            TabItem(tr("翻译", "Translate"), Icons.Outlined.Translate, false, Modifier.weight(1f)) { go(Route.Module("translate")) }
+            TabItem(tr("我的", "Me"), Icons.Outlined.Person, current == Route.Mine, Modifier.weight(1f), dot = UpdateBadge.has(ctx) || alertsNew) { go(Route.Mine) }
         }
-        // 对讲机式 AI 键：点一下进 AI 管家，按住直接开始说话
-        Box(
-            Modifier.size(62.dp).background(C.Gold, CircleShape).press(
-                onLongPress = { com.eric.toolbox.modules.ai.AiAgent.voiceOnOpen = true; go(Route.Module("ai")) },
-            ) { go(Route.Module("ai")) },
-            contentAlignment = Alignment.Center,
-        ) {
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                repeat(3) { Box(Modifier.size(22.dp, 2.dp).background(Color.Black.copy(alpha = 0.32f), RoundedCornerShape(1.dp))) }
+        // AI 键：点一下进 AI 管家，按住直接开始说话
+        Column(Modifier.padding(bottom = 6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            Box(
+                Modifier.size(62.dp).background(C.Bg, CircleShape).padding(4.dp).background(C.Gold, CircleShape).press(
+                    onLongPress = { com.eric.toolbox.modules.ai.AiAgent.voiceOnOpen = true; go(Route.Module("ai")) },
+                ) { go(Route.Module("ai")) },
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(Icons.Filled.GraphicEq, contentDescription = tr("AI 管家（按住说话）", "AI (hold to talk)"),
+                    tint = if (C.palette.isLight) Color.White else Color(0xFF121110), modifier = Modifier.size(28.dp))
             }
+            Text("AI", color = C.Muted, fontSize = 10.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
         }
     }
 }

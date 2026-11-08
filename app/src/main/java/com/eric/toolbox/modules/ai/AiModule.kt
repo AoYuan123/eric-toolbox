@@ -38,6 +38,14 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.History
+import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material3.Icon
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
+import com.eric.toolbox.ui.press
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
@@ -100,7 +108,8 @@ private fun AiRoot(onBack: () -> Unit) {
     when (page) {
         "settings" -> AiSettings(onBack = { page = "chat" }, openLog = { page = "log" })
         "log" -> AiLogScreen(onBack = { page = "settings" })
-        else -> AiChat(onBack, openSettings = { page = "settings" })
+        "history" -> AiHistory(onBack = { page = "chat" })
+        else -> AiChat(onBack, openSettings = { page = "settings" }, openHistory = { page = "history" })
     }
 }
 
@@ -150,7 +159,7 @@ private fun rows(history: List<AiLogic.Msg>): List<Row0> {
 }
 
 @Composable
-private fun AiChat(onBack: () -> Unit, openSettings: () -> Unit) {
+private fun AiChat(onBack: () -> Unit, openSettings: () -> Unit, openHistory: () -> Unit) {
     val ctx = LocalContext.current
     val app = ctx.applicationContext
     LaunchedEffect(Unit) { AiAgent.load(app) }
@@ -242,7 +251,9 @@ private fun AiChat(onBack: () -> Unit, openSettings: () -> Unit) {
                 Text("${AiLogic.provider(s.provider).name.substringBefore("（")} · ${s.model.removePrefix("deepseek-")} · 本月 ¥${"%.2f".format(cost)} / 上限 ¥${"%.0f".format(s.cap)}",
                     color = C.Muted, fontSize = 11.sp, fontFamily = FontFamily.Monospace, maxLines = 1)
             }
-            SmallBtn("设置", onClick = openSettings)
+            HeadIcon(Icons.Outlined.Add, "新对话") { AiAgent.newChat(app); input = "" }
+            HeadIcon(Icons.Outlined.History, "历史对话", onClick = openHistory)
+            HeadIcon(Icons.Outlined.Settings, "设置", onClick = openSettings)
         }
 
         LazyColumn(Modifier.weight(1f).fillMaxWidth().padding(horizontal = 14.dp), state = listState, verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -312,17 +323,15 @@ private fun AiChat(onBack: () -> Unit, openSettings: () -> Unit) {
                 Box(Modifier.size(10.dp).background(Red, CircleShape))
                 Text(if (partial.isBlank()) "正在听…  松开发送" else partial, color = C.Text, fontSize = 14.sp, maxLines = 2)
             }
+            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                listOf("今天金价", "有新试验吗", "继续听书", "生词要复习吗", "最近的提醒").forEach { q ->
+                    Text(q, color = C.Muted, fontSize = 12.sp, modifier = Modifier.border(1.dp, C.Line, RoundedCornerShape(16.dp))
+                        .clickable(enabled = !AiAgent.busy && AiAgent.pending == null) { AiAgent.send(app, q) }.padding(horizontal = 10.dp, vertical = 6.dp))
+                }
+            }
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Box(
-                    Modifier.size(52.dp).background(if (listening) Red else C.Bg, CircleShape).pointerInput(Unit) {
-                        detectTapGestures(onPress = {
-                            if (startListen()) { tryAwaitRelease(); rec.value?.stopListening() }
-                        })
-                    },
-                    contentAlignment = Alignment.Center,
-                ) { Text("🎙", fontSize = 22.sp) }
                 TextField(
-                    input, { input = it }, modifier = Modifier.weight(1f), placeholder = { Text("打字，或按住左边说话", fontSize = 14.sp) }, maxLines = 4,
+                    input, { input = it }, modifier = Modifier.weight(1f), placeholder = { Text("打字，或按住下面的话筒说话", fontSize = 14.sp) }, maxLines = 4,
                     shape = RoundedCornerShape(24.dp),
                     colors = TextFieldDefaults.colors(focusedIndicatorColor = Color.Transparent, unfocusedIndicatorColor = Color.Transparent,
                         focusedContainerColor = C.Bg, unfocusedContainerColor = C.Bg, focusedTextColor = C.Text, unfocusedTextColor = C.Text),
@@ -331,13 +340,63 @@ private fun AiChat(onBack: () -> Unit, openSettings: () -> Unit) {
                 Box(Modifier.size(48.dp).background(if (canSend) C.Gold else C.Line, CircleShape).clickable(enabled = canSend) { AiAgent.send(app, input); input = "" },
                     contentAlignment = Alignment.Center) { Text("↑", color = onGold(), fontSize = 20.sp, fontWeight = FontWeight.Bold) }
             }
-            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                listOf("今天金价", "有新试验吗", "继续听书", "生词要复习吗", "最近的提醒").forEach { q ->
-                    Text(q, color = C.Muted, fontSize = 12.sp, modifier = Modifier.border(1.dp, C.Line, RoundedCornerShape(16.dp))
-                        .clickable(enabled = !AiAgent.busy && AiAgent.pending == null) { AiAgent.send(app, q) }.padding(horizontal = 10.dp, vertical = 6.dp))
+            // 话筒放在正中间，拇指最好按
+            Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Box(
+                    Modifier.size(68.dp).background(if (listening) Red else C.Gold, CircleShape).pointerInput(Unit) {
+                        detectTapGestures(onPress = {
+                            if (startListen()) { tryAwaitRelease(); rec.value?.stopListening() }
+                        })
+                    },
+                    contentAlignment = Alignment.Center,
+                ) { Icon(Icons.Filled.Mic, contentDescription = "按住说话", tint = onGold(), modifier = Modifier.size(30.dp)) }
+                Text(if (listening) "松开发送" else "按住说话", color = C.Muted, fontSize = 11.sp)
+            }
+        }
+    }
+}
+
+@Composable
+private fun HeadIcon(icon: androidx.compose.ui.graphics.vector.ImageVector, desc: String, onClick: () -> Unit) {
+    Box(Modifier.size(42.dp).clickable(onClick = onClick), contentAlignment = Alignment.Center) {
+        Icon(icon, contentDescription = desc, tint = C.Text, modifier = Modifier.size(22.dp))
+    }
+}
+
+// ======================= 历史对话 =======================
+
+@Composable
+private fun AiHistory(onBack: () -> Unit) {
+    val ctx = LocalContext.current.applicationContext
+    var tick by remember { mutableIntStateOf(0) }
+    val list = remember(tick) { AiStore.chats(ctx) }
+    var del by remember { mutableStateOf<AiStore.ChatInfo?>(null) }
+    val fmt = remember { SimpleDateFormat("M月d日 HH:mm", Locale.CHINA) }
+    Column(Modifier.fillMaxSize()) {
+        Row(Modifier.fillMaxWidth().padding(start = 4.dp, end = 12.dp, top = 8.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            TopBarBack(onBack)
+            Text("历史对话", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = C.Text, modifier = Modifier.weight(1f))
+            SmallBtn("新对话", gold = true) { AiAgent.newChat(ctx); onBack() }
+        }
+        Text("点一下继续聊，长按删除。最多保留 100 个。", color = C.Muted, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
+        LazyColumn(Modifier.fillMaxSize().padding(horizontal = 14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (list.isEmpty()) item { Text("还没有历史对话", color = C.Muted, fontSize = 14.sp, modifier = Modifier.padding(top = 24.dp)) }
+            items(list, key = { it.id }) { c ->
+                val cur = c.id == AiAgent.chatId
+                Column(Modifier.fillMaxWidth().background(C.Surface, RoundedCornerShape(14.dp))
+                    .border(1.dp, if (cur) C.Gold.copy(alpha = 0.6f) else Color.Transparent, RoundedCornerShape(14.dp))
+                    .press(onLongPress = { del = c }) { AiAgent.openChat(ctx, c.id); onBack() }.padding(14.dp)) {
+                    Text(c.title, color = C.Text, fontSize = 15.sp, maxLines = 1)
+                    Text((if (cur) "当前 · " else "") + fmt.format(Date(c.updated)), color = C.Muted, fontSize = 12.sp, fontFamily = FontFamily.Monospace)
                 }
             }
         }
+    }
+    del?.let { c ->
+        AlertDialog(onDismissRequest = { del = null }, containerColor = C.Surface,
+            title = { Text("删除这个对话？", color = C.Text) }, text = { Text(c.title, color = C.Muted) },
+            confirmButton = { TextButton({ AiAgent.deleteChat(ctx, c.id); del = null; tick++ }) { Text("删除", color = Red) } },
+            dismissButton = { TextButton({ del = null }) { Text("取消", color = C.Muted) } })
     }
 }
 
@@ -446,7 +505,7 @@ private fun AiSettings(onBack: () -> Unit, openLog: () -> Unit) {
 
             ListCard {
                 RowItem("操作记录", "", onClick = openLog)
-                RowItem("清空对话", "", onClick = { AiAgent.clear(ctx); Toast.makeText(ctx, "已清空", Toast.LENGTH_SHORT).show() })
+                RowItem("新开对话", "", sub = "当前对话保存在「历史对话」里", onClick = { AiAgent.newChat(ctx); Toast.makeText(ctx, "已新开对话", Toast.LENGTH_SHORT).show() })
             }
             Box(Modifier.size(20.dp))
         }

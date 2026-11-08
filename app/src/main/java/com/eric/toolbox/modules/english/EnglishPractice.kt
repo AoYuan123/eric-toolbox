@@ -39,6 +39,9 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Icon
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -259,16 +262,19 @@ private fun Conversation(s: Scene, voice: EnVoice, onBack: () -> Unit) {
         Column(Modifier.fillMaxWidth().background(C.Surface).padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             if (listening) Text(partial.ifBlank { tr("正在听…松开发送", "Listening… release to send") }, color = C.Text, fontSize = 14.sp)
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Box(Modifier.size(56.dp).background(if (listening) C.Warn else C.Gold, CircleShape).pointerInput(Unit) {
+                OutlinedTextField(input, { input = it }, modifier = Modifier.weight(1f), placeholder = { Text(tr("打字，或按住下面的话筒说英文", "Type, or hold the mic below")) }, maxLines = 3)
+                Btn(tr("发送", "Send"), primary = input.isNotBlank()) { if (input.isNotBlank()) { turn(input.trim()); input = "" } }
+            }
+            Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Box(Modifier.size(68.dp).background(if (listening) C.Warn else C.Gold, CircleShape).pointerInput(Unit) {
                     detectTapGestures(onPress = {
                         if (!hasMic(ctx)) { perm.launch(Manifest.permission.RECORD_AUDIO); return@detectTapGestures }
                         voice.stop()
                         if (listener.start()) { listening = true; tryAwaitRelease(); listener.stop() }
                         else Toast.makeText(ctx, tr("这台手机没有系统语音识别，可以用输入法的语音输入打字", "No speech recognition on this phone; use keyboard voice input"), Toast.LENGTH_LONG).show()
                     })
-                }, contentAlignment = Alignment.Center) { Text("🎙", fontSize = 22.sp) }
-                OutlinedTextField(input, { input = it }, modifier = Modifier.weight(1f), placeholder = { Text(tr("按住左边说英文，或在这里打字", "Hold to speak, or type")) }, maxLines = 3)
-                Btn(tr("发送", "Send"), primary = input.isNotBlank()) { if (input.isNotBlank()) { turn(input.trim()); input = "" } }
+                }, contentAlignment = Alignment.Center) { Icon(Icons.Filled.Mic, contentDescription = tr("按住说话", "Hold to speak"), tint = onAcc(), modifier = Modifier.size(30.dp)) }
+                Text(if (listening) tr("松开发送", "Release to send") else tr("按住说英文", "Hold to speak"), color = C.Muted, fontSize = 11.sp)
             }
         }
     }
@@ -341,18 +347,16 @@ internal fun PronScreen(voice: EnVoice, onBack: () -> Unit) {
                 }
             }
             Tile {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                    Box(Modifier.size(64.dp).background(if (recording) C.Warn else C.Gold, CircleShape).pointerInput(i) {
+                Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Box(Modifier.size(72.dp).background(if (recording) C.Warn else C.Gold, CircleShape).pointerInput(i) {
                         detectTapGestures(onPress = {
                             if (!hasMic(ctx)) { perm.launch(Manifest.permission.RECORD_AUDIO); return@detectTapGestures }
                             val ok = runCatching { startRec() }.isSuccess
                             if (ok) { tryAwaitRelease(); stopRec() } else Toast.makeText(ctx, tr("录音启动失败", "Couldn't start recording"), Toast.LENGTH_SHORT).show()
                         })
-                    }, contentAlignment = Alignment.Center) { Text("🎙", fontSize = 24.sp) }
-                    Column(Modifier.weight(1f)) {
-                        Text(if (recording) tr("正在录…松开结束", "Recording… release to stop") else tr("按住录音，松开结束", "Hold to record"), color = C.Text, fontSize = 14.sp)
-                        Caption(tr("录音只存在手机缓存，离开本页就删除", "Recording is deleted when you leave"))
-                    }
+                    }, contentAlignment = Alignment.Center) { Icon(Icons.Filled.Mic, contentDescription = tr("按住录音", "Hold to record"), tint = onAcc(), modifier = Modifier.size(32.dp)) }
+                    Text(if (recording) tr("正在录…松开结束", "Recording… release to stop") else tr("按住录音，松开结束", "Hold to record"), color = C.Text, fontSize = 14.sp)
+                    Caption(tr("录音只存在手机缓存，离开本页就删除", "Recording is deleted when you leave"))
                 }
                 Spacer(Modifier.height(10.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

@@ -71,14 +71,60 @@ object AiStore {
     // ---------------- 对话 ----------------
     private fun dir(ctx: Context) = File(ctx.filesDir, "ai").apply { mkdirs() }
 
-    fun loadChat(ctx: Context): List<AiLogic.Msg> = runCatching {
-        val a = JSONArray(File(dir(ctx), "chat.json").readText())
+    // 多个对话：files/ai/chats/<id>.json + index.json（id、标题=第一句话、更新时间）。老版本的 chat.json 首次读取时并入。
+    data class ChatInfo(val id: String, val title: String, val updated: Long)
+    private fun chatsDir(ctx: Context) = File(dir(ctx), "chats").apply { mkdirs() }
+    private fun indexFile(ctx: Context) = File(chatsDir(ctx), "index.json")
+
+    @Synchronized
+    fun chats(ctx: Context): List<ChatInfo> {
+        migrate(ctx)
+        return runCatching {
+            val a = JSONArray(indexFile(ctx).readText())
+            (0 until a.length()).map { a.getJSONObject(it).let { o -> ChatInfo(o.getString("id"), o.optString("t"), o.optLong("u")) } }
+        }.getOrDefault(emptyList()).sortedByDescending { it.updated }
+    }
+
+    private fun saveIndex(ctx: Context, list: List<ChatInfo>) {
+        indexFile(ctx).writeText(JSONArray().apply { list.forEach { put(JSONObject().put("id", it.id).put("t", it.title).put("u", it.updated)) } }.toString())
+    }
+
+    private fun migrate(ctx: Context) {
+        val old = File(dir(ctx), "chat.json")
+        if (!old.isFile) return
+        val id = "c" + System.currentTimeMillis()
+        old.copyTo(File(chatsDir(ctx), "$id.json"), overwrite = true); old.delete()
+        val msgs = loadChat(ctx, id)
+        if (msgs.isNotEmpty()) {
+            saveIndex(ctx, listOf(ChatInfo(id, titleOf(msgs), msgs.last().at)))
+            prefs(ctx).edit().putString("chat_cur", id).apply()
+        }
+    }
+
+    private fun titleOf(msgs: List<AiLogic.Msg>) = msgs.firstOrNull { it.role == "user" }?.content.orEmpty().replace('\n', ' ').take(24).ifBlank { "新对话" }
+
+    fun currentId(ctx: Context): String { migrate(ctx); return prefs(ctx).getString("chat_cur", null) ?: newId(ctx) }
+    fun newId(ctx: Context): String = ("c" + System.currentTimeMillis()).also { prefs(ctx).edit().putString("chat_cur", it).apply() }
+    fun setCurrent(ctx: Context, id: String) { prefs(ctx).edit().putString("chat_cur", id).apply() }
+
+    fun loadChat(ctx: Context, id: String): List<AiLogic.Msg> = runCatching {
+        val a = JSONArray(File(chatsDir(ctx), "$id.json").readText())
         (0 until a.length()).map { AiLogic.msgFromJson(a.getJSONObject(it)) }
     }.getOrDefault(emptyList())
 
-    fun saveChat(ctx: Context, list: List<AiLogic.Msg>) {
-        val keep = AiLogic.window(list, 80)
-        File(dir(ctx), "chat.json").writeText(JSONArray().apply { keep.forEach { put(AiLogic.msgToJson(it)) } }.toString())
+    @Synchronized
+    fun saveChat(ctx: Context, id: String, list: List<AiLogic.Msg>) {
+        if (list.isEmpty()) return
+        val keep = AiLogic.window(list, 120)
+        File(chatsDir(ctx), "$id.json").writeText(JSONArray().apply { keep.forEach { put(AiLogic.msgToJson(it)) } }.toString())
+        val idx = chats(ctx).filter { it.id != id } + ChatInfo(id, titleOf(list), System.currentTimeMillis())
+        saveIndex(ctx, idx.sortedByDescending { it.updated }.take(100))
+    }
+
+    @Synchronized
+    fun deleteChat(ctx: Context, id: String) {
+        File(chatsDir(ctx), "$id.json").delete()
+        saveIndex(ctx, chats(ctx).filter { it.id != id })
     }
 
     // ---------------- 操作记录与撤销 ----------------

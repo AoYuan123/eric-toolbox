@@ -21,6 +21,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
 import androidx.compose.material.icons.outlined.Pause
+import androidx.compose.material.icons.outlined.Translate
 import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -35,6 +36,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -87,12 +89,12 @@ fun HomeScreen(go: (Route) -> Unit) {
             Health(running, tick) { MonitorService.sync(ctx); go(Route.KeepAlive) }
         }
         if ("gold" in visible) GoldTile { go(Route.Module("gold")) }
+        if ("translate" in visible) TranslateTile { go(Route.Module("translate")) }
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             EnglishTile(Modifier.weight(1f), tick) { go(Route.English) }
             ListenTile(Modifier.weight(1f)) { go(Route.Module("read")) }
         }
-        if ("trials" in visible) TrialsTile(tick) { go(Route.Module("trials")) }
-        val tools = ModuleRegistry.visibleOrdered(ctx).filter { it.id !in setOf("gold", "trials", "english", "ai") }
+        val tools = ModuleRegistry.visibleOrdered(ctx).filter { it.id !in setOf("gold", "trials", "english", "ai", "translate") }
         if (tools.isNotEmpty()) {
             Caption(tr("工具", "Tools"), Modifier.padding(start = 4.dp, top = 4.dp))
             tools.chunked(4).forEach { row ->
@@ -108,7 +110,23 @@ fun HomeScreen(go: (Route) -> Unit) {
                 }
             }
         }
+        if ("trials" in visible) TrialsTile(tick) { go(Route.Module("trials")) }
         Spacer(Modifier.height(12.dp))
+    }
+}
+
+@Composable
+private fun TranslateTile(onClick: () -> Unit) {
+    Tile(onClick = onClick) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Icon(Icons.Outlined.Translate, null, tint = C.Text, modifier = Modifier.size(20.dp))
+            Text(tr("翻译", "Translate"), color = C.Text, fontSize = 15.sp, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
+            Caption(tr("中 ⇄ 英", "ZH ⇄ EN"))
+        }
+        Spacer(Modifier.height(10.dp))
+        Box(Modifier.fillMaxWidth().background(C.Bg, RoundedCornerShape(12.dp)).padding(horizontal = 14.dp, vertical = 12.dp)) {
+            Text(tr("输入或粘贴要翻译的文字…", "Type or paste text to translate…"), color = C.Muted, fontSize = 14.sp)
+        }
     }
 }
 
@@ -146,38 +164,43 @@ private fun GoldTile(onClick: () -> Unit) {
             Caption(tr("上海金 Au99.99 · 元/克", "Au99.99 · CNY/g"), Modifier.weight(1f))
             Caption(q?.timeMs?.let { SimpleDateFormat("HH:mm:ss", Locale.CHINA).format(Date(it)) } ?: "--:--")
         }
-        Spacer(Modifier.height(10.dp))
-        if (price != null) DotMatrix("%.2f".format(price), dot = 8.dp) else DotMatrix("---.--", dot = 8.dp, color = C.Muted)
-        Spacer(Modifier.height(10.dp))
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-            if (price != null && prev != null) {
-                val d = price - prev
-                Text("%+.2f  %+.2f%%".format(d, d / prev * 100), color = if (d >= 0) C.Up else C.Down, fontSize = 13.sp, style = NumStyle)
-            }
+        Spacer(Modifier.height(6.dp))
+        val d = if (price != null && prev != null) price - prev else null
+        val tone = when { d == null -> C.Muted; d >= 0 -> C.Up; else -> C.Down }
+        Row(verticalAlignment = Alignment.Bottom) {
+            val txt = price?.let { "%.2f".format(it) } ?: "---.--"
+            Text(txt.substringBefore('.'), color = if (price == null) C.Muted else C.Text, fontSize = 46.sp, fontWeight = FontWeight.SemiBold, style = NumStyle,
+                modifier = Modifier.alignByBaseline())
+            Text("." + txt.substringAfter('.'), color = C.Muted, fontSize = 24.sp, fontWeight = FontWeight.Medium, style = NumStyle, modifier = Modifier.alignByBaseline())
+            Spacer(Modifier.weight(1f))
+            if (d != null && prev != null) Text("%+.2f  %+.2f%%".format(d, d / prev * 100), color = tone, fontSize = 13.sp, fontWeight = FontWeight.Medium, style = NumStyle,
+                modifier = Modifier.alignByBaseline().background(tone.copy(alpha = 0.14f), RoundedCornerShape(8.dp)).padding(horizontal = 8.dp, vertical = 4.dp))
+        }
+        if (series.size >= 3) { Spacer(Modifier.height(8.dp)); Spark(series, tone) }
+        Spacer(Modifier.height(8.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
             if (price != null) Text(
                 if (price > nextTier) tr("距 $nextTier 还差 %.2f".format(price - nextTier), "%.2f above $nextTier".format(price - nextTier))
                 else tr("已低于 $nextTier", "below $nextTier"),
-                color = C.Muted, fontSize = 12.sp, style = NumStyle,
-            )
-            Spacer(Modifier.weight(1f))
-            if (series.size >= 3) Spark(series)
-        }
-        snap?.bank?.jcj?.let { j ->
-            Spacer(Modifier.height(8.dp))
-            Text(tr("工行积存金 %.2f", "ICBC gold savings %.2f").format(j), color = C.Muted, fontSize = 12.sp, style = NumStyle)
+                color = C.Muted, fontSize = 12.sp, style = NumStyle, modifier = Modifier.weight(1f),
+            ) else Spacer(Modifier.weight(1f))
+            snap?.bank?.jcj?.let { j -> Text(tr("工行积存金 %.2f", "ICBC savings %.2f").format(j), color = C.Muted, fontSize = 12.sp, style = NumStyle) }
         }
     }
 }
 
 @Composable
-private fun Spark(values: List<Double>) {
+private fun Spark(values: List<Double>, tone: Color) {
     val lo = values.min(); val hi = values.max(); val span = (hi - lo).takeIf { it > 1e-9 } ?: 1.0
-    val line = C.Muted; val dot = C.Gold
-    Canvas(Modifier.size(84.dp, 24.dp)) {
+    Canvas(Modifier.fillMaxWidth().height(40.dp)) {
         val stepX = size.width / (values.size - 1)
-        fun y(v: Double) = (size.height - ((v - lo) / span * size.height)).toFloat()
-        for (i in 1 until values.size) drawLine(line, Offset((i - 1) * stepX, y(values[i - 1])), Offset(i * stepX, y(values[i])), 3f, StrokeCap.Round)
-        drawCircle(dot, 5f, Offset(size.width, y(values.last())))
+        fun y(v: Double) = (4f + (size.height - 8f) * (1 - ((v - lo) / span))).toFloat()
+        val path = androidx.compose.ui.graphics.Path()
+        values.forEachIndexed { i, v -> if (i == 0) path.moveTo(0f, y(v)) else path.lineTo(i * stepX, y(v)) }
+        val fill = androidx.compose.ui.graphics.Path().apply { addPath(path); lineTo(size.width, size.height); lineTo(0f, size.height); close() }
+        drawPath(fill, tone.copy(alpha = 0.10f))
+        drawPath(path, tone, style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2.5f, cap = StrokeCap.Round, join = androidx.compose.ui.graphics.StrokeJoin.Round))
+        drawCircle(tone, 5f, Offset(size.width, y(values.last())))
     }
 }
 
