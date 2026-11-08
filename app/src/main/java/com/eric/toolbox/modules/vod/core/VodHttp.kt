@@ -65,6 +65,39 @@ object VodHttp {
         return String(body.readBytes(), charsetOf(conn.contentType))
     }
 
+    /**
+     * GET 二进制。Spider 插件是 zip/dex，按字符串解码会直接毁掉内容，
+     * 所以单独开一条字节通道，不做任何字符集处理。
+     */
+    fun getBytes(
+        url: String,
+        headers: Map<String, String> = emptyMap(),
+        timeoutMs: Int = 60_000,
+    ): ByteArray {
+        require(url.startsWith("http://") || url.startsWith("https://")) { "地址必须以 http 开头" }
+        val conn = (URL(url).openConnection() as HttpURLConnection).apply {
+            requestMethod = "GET"
+            connectTimeout = timeoutMs
+            readTimeout = timeoutMs
+            instanceFollowRedirects = true
+            setRequestProperty("User-Agent", headers["User-Agent"]?.ifBlank { null } ?: DEFAULT_UA)
+            setRequestProperty("Accept", "*/*")
+            headers.forEach { (k, v) ->
+                if (k.isNotBlank() && v.isNotBlank() && !k.equals("Accept-Encoding", true)) setRequestProperty(k, v)
+            }
+        }
+        return try {
+            val code = conn.responseCode
+            if (code !in 200..299) throw HttpError(code, "源站返回 HTTP $code")
+            val stream: InputStream = conn.inputStream
+            val enc = conn.contentEncoding.orEmpty()
+            val body = if (enc.equals("gzip", ignoreCase = true)) GZIPInputStream(stream) else stream
+            body.readBytes()
+        } finally {
+            conn.disconnect()
+        }
+    }
+
     /** 从 Content-Type 里取 charset，取不到就按 UTF-8。老 CMS 常见 GBK。 */
     private fun charsetOf(contentType: String?): Charset {
         if (contentType.isNullOrBlank()) return Charsets.UTF_8

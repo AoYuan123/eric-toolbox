@@ -30,14 +30,26 @@ object ConfigParser {
         val warnings = ArrayList<String>()
         if (prepared.note.isNotBlank()) warnings += prepared.note
 
-        // 配置的 spider 字段：即便写了也不用，明确告知
+        // 配置的 spider 字段：插件包地址。能下才谈得上跑 Spider 站点
         val spiderDeclared = root.optString("spider").trim()
+        val plugin = SpiderJar.parse(spiderDeclared)
+        val pluginOk = plugin != null && plugin.isRemote
         if (spiderDeclared.isNotBlank()) {
-            warnings += "这份配置指定了 Spider 脚本，本 App 不使用，相关站点会被跳过"
+            warnings += if (pluginOk) {
+                "这份配置带插件包，Spider 站点首次使用时会联网下载（约 1MB 以上）"
+            } else {
+                "配置里的插件包不是 http 地址（$spiderDeclared），App 内没法下载，Spider 站点不可用"
+            }
         }
 
         val sites = ArrayList<VodSite>()
+        // 三个口径要分清，否则界面上的数字对不上用户的直觉：
+        //   spiderTotal  —— 配置里 type=3 的总数（不管能不能跑）
+        //   spiderNames  —— 真接进来的（有插件包）
+        //   skippedSpider—— 跳过的（没插件包，或者是要 JS 引擎的脚本类）
+        var spiderTotal = 0
         val spiderNames = ArrayList<String>()
+        val skippedSpider = ArrayList<String>()
         val badApiNames = ArrayList<String>()
         val arr = root.optJSONArray("sites") ?: JSONArray()
         for (i in 0 until arr.length()) {
@@ -55,8 +67,22 @@ object ConfigParser {
                 playable = flag(o, "playable", true),
                 subId = subId,
             )
-            if (!site.supported) {
-                spiderNames += site.name
+            if (site.isSpider) {
+                spiderTotal++
+                // type=3 的 api 有两种完全不同的东西：
+                //   csp_Xxx          —— 插件里的类名，靠 spider 字段那个包
+                //   ./lib/xxx.js     —— drpy/JS 脚本，要 JS 引擎，本 App 不做
+                val looksLikeScript = site.api.startsWith("./") || site.api.startsWith("../") ||
+                    site.api.startsWith("http://") || site.api.startsWith("https://")
+                when {
+                    looksLikeScript -> skippedSpider += site.name
+                    site.api.isBlank() -> badApiNames += site.name
+                    !pluginOk -> skippedSpider += site.name
+                    else -> {
+                        sites += site
+                        spiderNames += site.name
+                    }
+                }
                 continue
             }
             if (!site.hasApi) {
@@ -65,12 +91,17 @@ object ConfigParser {
             }
             sites += site
         }
-        // 大配置里 Spider 动辄几十个，逐条报会把屏幕刷爆，这里汇总成一句
         if (spiderNames.isNotEmpty()) {
-            val head = spiderNames.take(3).joinToString("、")
-            val tail = if (spiderNames.size > 3) " 等" else ""
-            warnings += "已跳过 ${spiderNames.size} 个 Spider 站点（$head$tail）：" +
-                "这类站点要下载并在 App 内执行第三方代码，本 App 不支持"
+            warnings += "已接入 ${spiderNames.size} 个 Spider 站点（${brief(spiderNames)}）：" +
+                "靠配置里的插件包取数据，首次加载会下载插件"
+        }
+        if (skippedSpider.isNotEmpty()) {
+            val why = if (!pluginOk) {
+                "这份配置没有可用的插件包"
+            } else {
+                "它们要执行远程 JS，本 App 没有 JS 引擎"
+            }
+            warnings += "已跳过 ${skippedSpider.size} 个 Spider 站点（${brief(skippedSpider)}）：$why"
         }
         if (badApiNames.isNotEmpty()) {
             warnings += "已跳过 ${badApiNames.size} 个站点：api 地址缺失或不是 http(s)"
@@ -93,12 +124,13 @@ object ConfigParser {
             sites = sites,
             parses = parseRules(root.optJSONArray("parses")),
             lives = parseLives(root.optJSONArray("lives")),
+            spiderDecl = if (pluginOk) spiderDeclared else "",
             ua = ua,
             timeoutMs = timeoutMs,
             warnings = warnings,
             stats = ConfigStats(
                 total = arr.length(),
-                spider = spiderNames.size,
+                spider = spiderTotal,
                 noApi = badApiNames.size,
                 usable = sites.size,
             ),
@@ -200,10 +232,15 @@ object ConfigParser {
      * 而不是「看不懂这份配置」。宁可这条候选作废，继续试下一种。
      */
     private fun attempt(text: String): String? {
-        val json = firstJsonObject(text) ?: return null
-        val cooked = stripJsonComments(json)
-        val usable = runCatching { JSONObject(cooked); true }.getOrElse { false }
-        return if (usable) cooked else null
+        // 顺序是命门：**先剥注释，再配括号**。
+        // 配置里常见把整个站点用 // 注掉（`//{"key":"原创",...}`），
+        // 如果先 firstJsonObject 再 stripComments，注释里的花括号和引号会被
+        // 当成结构参与配对，切出来的片段永远是残的——表现就是"JSON 解析失败"，
+        // 而真正的原因是顺序。饭太硬那份 in.bmp 就栽在这上面。
+        val noComment = stripJsonComments(text)
+        val json = firstJsonObject(noComment) ?: return null
+        val usable = runCatching { JSONObject(json); true }.getOrElse { false }
+        return if (usable) json else null
     }
 
     // ------------------------------------------------------------ 还原工具
@@ -325,8 +362,13 @@ object ConfigParser {
         return Regex(",(\\s*[}\\]])").replace(out.toString(), "\$1")
     }
 
-    /** searchable/filterable 这类开关，各家写法有 true / 1 / "0" 三种 */
-    private fun flag(o: JSONObject, key: String, def: Boolean): Boolean {
+    /** 举例最多三个，再多就「等」——几十个站点的名字会把一整段警告撑爆 */
+    private fun brief(names: List<String>): String {
+        val head = names.take(3).joinToString("、")
+        return if (names.size > 3) "$head 等" else head
+    }
+
+    /** searchable/filterable 这类开关，各家写法有 true / 1 / "0" 三种 */    private fun flag(o: JSONObject, key: String, def: Boolean): Boolean {
         return when (val v = o.opt(key)) {
             null -> def
             is Boolean -> v

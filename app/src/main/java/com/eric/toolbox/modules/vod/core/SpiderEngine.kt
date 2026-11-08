@@ -1,0 +1,297 @@
+package com.eric.toolbox.modules.vod.core
+
+import android.content.Context
+import com.eric.toolbox.modules.vod.model.VodItem
+import com.eric.toolbox.modules.vod.model.VodSite
+import com.eric.toolbox.modules.vod.model.VodTime
+import com.github.catvod.crawler.Spider
+import com.github.catvod.crawler.SpiderDebug
+import dalvik.system.DexClassLoader
+import org.json.JSONArray
+import org.json.JSONObject
+import java.io.File
+import java.lang.reflect.Modifier
+
+/**
+ * 一个插件包（配置里的 spider）对应一个引擎。同一个包里通常挂着几十个站点类，
+ * 所以引擎按 jar 复用，蜘蛛实例按类名缓存——重复 new 会把站点自己的状态搞丢。
+ *
+ * 加载链路（这是 TVBox 那套约定，顺序不能换）：
+ *
+ *   1. DexClassLoader 加载插件包
+ *   2. 找到 com.github.catvod.spider.Init，调 init(Context)
+ *      —— 加固过的包在这一步解密自己的载荷、加载 native 库
+ *   3. Init.getSpider(类名) 拿到具体站点；加固包只有这一条路走得通
+ *      （业务类在加密载荷里，Class.forName 看不到）
+ *   4. 退路：未加固的包直接 Class.forName("com.github.catvod.spider." + 类名)
+ *
+ * 第 3 步失败时会自动落到第 4 步，所以普通包和加固包用同一套代码。
+ */
+class SpiderEngine(
+    private val ctx: Context,
+    val jar: File,
+) {
+
+    private val loader: DexClassLoader
+    private val initClass: Class<*>
+    private var initInstance: Any? = null
+
+    /** 类名 -> 实例。插件站点内部常持有 cookie/session，必须复用 */
+    private val spiders = HashMap<String, Spider>()
+
+    /** 初始化失败的原因，展示给用户时不用再猜 */
+    @Volatile
+    var bootError: String = ""
+        private set
+
+    init {
+        val odex = File(ctx.codeCacheDir, "spider_odex").apply { mkdirs() }
+        loader = DexClassLoader(jar.absolutePath, odex.absolutePath, null, ctx.classLoader)
+        initClass = Class.forName(INIT_CLASS, true, loader)
+        bootstrap()
+    }
+
+    // ------------------------------------------------------------- 初始化
+
+    private fun bootstrap() {
+        SpiderDebug.log("插件加载: ${jar.name} (${jar.length()} 字节)")
+        // init 可能是静态方法，也可能是单例上的实例方法，两种都试。
+        val ok = tryStaticInit() || tryInstanceInit()
+        if (!ok) {
+            bootError = "插件初始化方法没有调用成功（Init.init 既不是静态也无法实例化）"
+            SpiderDebug.log(bootError)
+        }
+    }
+
+    private fun tryStaticInit(): Boolean = runCatching {
+        val m = initClass.getMethod("init", Context::class.java)
+        if (!Modifier.isStatic(m.modifiers)) return false
+        m.invoke(null, ctx)
+        SpiderDebug.log("Init.init(Context) 静态调用完成")
+        true
+    }.getOrElse {
+        SpiderDebug.log("静态 init 失败: ${it.javaClass.simpleName}: ${it.message}")
+        false
+    }
+
+    private fun tryInstanceInit(): Boolean {
+        initInstance = runCatching { initClass.getMethod("get").invoke(null) }
+            .getOrElse {
+                SpiderDebug.log("Init.get() 失败: ${it.message}")
+                null
+            }
+            ?: runCatching { initClass.getConstructor().newInstance() }
+                .getOrElse {
+                    SpiderDebug.log("Init 无法实例化: ${it.message}")
+                    null
+                }
+
+        val inst = initInstance ?: return false
+        return runCatching {
+            val m = initClass.getMethod("init", Context::class.java)
+            if (Modifier.isStatic(m.modifiers)) return false
+            m.invoke(inst, ctx)
+            SpiderDebug.log("Init.init(Context) 实例调用完成")
+            true
+        }.getOrElse {
+            SpiderDebug.log("实例 init 失败: ${it.javaClass.simpleName}: ${it.message}")
+            false
+        }
+    }
+
+    // --------------------------------------------------------------- 取实例
+
+    /**
+     * 按站点类名取 Spider 实例。
+     * 先走加固包的 getSpider（业务类在加密载荷里，只能由壳自己创建），
+     * 再走普通反射。
+     */
+    fun spider(site: VodSite): Spider {
+        val api = classNameOf(site.api)
+        synchronized(spiders) {
+            spiders[api]?.let { return it }
+            val s = create(site, api)
+            spiders[api] = s
+            return s
+        }
+    }
+
+    private fun create(site: VodSite, api: String): Spider {
+        viaGuard(api)?.let { return it }
+        return viaReflect(site, api)
+    }
+
+    private fun viaGuard(api: String): Spider? = runCatching {
+        val inst = initInstance
+            ?: runCatching { initClass.getMethod("get").invoke(null) }.getOrNull()
+            ?: return null
+        val m = initClass.getMethod("getSpider", String::class.java)
+        val s = m.invoke(inst, api) as? Spider ?: return null
+        runCatching { s.siteKey = api }
+        SpiderDebug.log("getSpider($api) 成功")
+        s
+    }.getOrElse { e ->
+        SpiderDebug.log("getSpider($api) 失败: ${rootMessage(e)}")
+        null
+    }
+
+    private fun viaReflect(site: VodSite, api: String): Spider {
+        val cls = Class.forName("$SPIDER_PKG$api", true, loader)
+        val s = cls.getDeclaredConstructor().newInstance() as Spider
+        runCatching { s.siteKey = api }
+        runCatching { s.init(ctx, site.ext) }
+            .onFailure { SpiderDebug.log("init($api) 抛异常: ${rootMessage(it)}") }
+        SpiderDebug.log("反射创建 $api 成功")
+        return s
+    }
+
+    // ------------------------------------------------------------- 数据接口
+
+    /** 搜索。插件返回 {"list":[...]} */
+    fun search(site: VodSite, keyword: String): SiteClient.PageResult = call(site) { s ->
+        s.searchContent(keyword, false)
+    }
+
+    fun home(site: VodSite, page: Int): SiteClient.PageResult = call(site) { s ->
+        if (page <= 1) s.homeContent(false) else ""
+    }
+
+    fun category(site: VodSite, tid: String, page: Int): SiteClient.PageResult = call(site) { s ->
+        @Suppress("UNCHECKED_CAST")
+        s.categoryContent(tid, page.toString(), false, HashMap<String, String>())
+    }
+
+    fun detail(site: VodSite, id: String): SiteClient.PageResult = call(site) { s ->
+        s.detailContent(listOf(id))
+    }
+
+    /** 播放。返回 (直连地址, 请求头, 是否还需要解析) */
+    data class Player(val url: String = "", val headers: Map<String, String> = emptyMap(),
+                      val error: String = "")
+
+    fun player(site: VodSite, flag: String, id: String): Player = try {
+        val s = spider(site)
+        val raw = s.playerContent(flag, id, emptyList())
+        if (raw.isBlank()) {
+            Player(error = "插件没有返回播放地址")
+        } else {
+            val o = JSONObject(raw)
+            val url = o.optString("url").trim()
+            val headers = o.optJSONObject("header")?.let { h ->
+                h.keys().asSequence().associateWith { k -> h.optString(k) }
+            }.orEmpty()
+            if (url.isBlank()) {
+                // parse=1 表示要经过解析器，那种地址本身不是媒体流。
+                // 这里如实说明，不拿解析器页面去喂播放器（会一直转圈）。
+                Player(error = o.optString("msg").ifBlank {
+                    if (o.optInt("parse", 0) == 1) "这条线路需要额外解析，暂不支持" else "插件没有给出播放地址"
+                })
+            } else {
+                Player(url, headers)
+            }
+        }
+    } catch (e: Throwable) {
+        SpiderDebug.log("播放失败: ${rootMessage(e)}")
+        Player(error = rootMessage(e))
+    }
+
+    private fun call(site: VodSite, block: (Spider) -> String): SiteClient.PageResult = try {
+        val raw = block(spider(site))
+        if (raw.isBlank()) {
+            SiteClient.PageResult(error = "插件返回空数据")
+        } else {
+            parse(raw, site)
+        }
+    } catch (e: Throwable) {
+        SiteClient.PageResult(error = rootMessage(e))
+    }
+
+    // ------------------------------------------------------------ JSON 适配
+
+    /**
+     * 插件的返回格式跟苹果 CMS 基本一致，但字段名有简写版本（id/name/pic），
+     * 所以两种都认。解析失败不抛异常，交给上层显示「无结果」。
+     */
+    private fun parse(raw: String, site: VodSite): SiteClient.PageResult {
+        val text = raw.trim()
+        val root = when {
+            text.startsWith("{") -> JSONObject(text)
+            text.startsWith("[") -> JSONObject().put("list", JSONArray(text))
+            else -> return SiteClient.PageResult(error = "插件返回的不是 JSON")
+        }
+        val items = ArrayList<VodItem>()
+        val arr = root.optJSONArray("list") ?: JSONArray()
+        for (i in 0 until arr.length()) {
+            val o = arr.optJSONObject(i) ?: continue
+            val item = itemOf(o, site)
+            if (item.id.isNotBlank() && item.name.isNotBlank()) items += item
+        }
+        return SiteClient.PageResult(items = items, categories = categoriesOf(root))
+    }
+
+    private fun itemOf(o: JSONObject, site: VodSite): VodItem = VodItem(
+        siteKey = site.key,
+        siteName = site.name,
+        id = str(o, "vod_id", "id"),
+        name = str(o, "vod_name", "name"),
+        pic = str(o, "vod_pic", "pic"),
+        remarks = str(o, "vod_remarks", "remarks", "note"),
+        typeName = str(o, "type_name", "type", "typename"),
+        year = str(o, "vod_year", "year"),
+        area = str(o, "vod_area", "area"),
+        actor = str(o, "vod_actor", "actor"),
+        director = str(o, "vod_director", "director"),
+        content = stripHtml(str(o, "vod_content", "content", "des")),
+        playFrom = str(o, "vod_play_from", "play_from"),
+        playUrl = str(o, "vod_play_url", "play_url"),
+        updatedAt = VodTime.parse(str(o, "vod_time", "time", "last")),
+    )
+
+    private fun categoriesOf(root: JSONObject): List<com.eric.toolbox.modules.vod.model.VodCategory> {
+        val out = ArrayList<com.eric.toolbox.modules.vod.model.VodCategory>()
+        val arr = root.optJSONArray("class") ?: return out
+        for (i in 0 until arr.length()) {
+            val o = arr.optJSONObject(i) ?: continue
+            val id = str(o, "type_id", "id")
+            val name = str(o, "type_name", "name")
+            if (id.isNotBlank() && name.isNotBlank()) {
+                out += com.eric.toolbox.modules.vod.model.VodCategory(id, name)
+            }
+        }
+        return out
+    }
+
+    private fun str(o: JSONObject, vararg keys: String): String {
+        for (k in keys) {
+            val v = o.optString(k, "").trim()
+            if (v.isNotBlank() && v != "null") return v
+        }
+        return ""
+    }
+
+    private fun stripHtml(s: String): String = s
+        .replace(Regex("<[^>]*>"), "")
+        .replace("&nbsp;", " ")
+        .replace("&quot;", "\"")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&amp;", "&")
+        .trim()
+
+    companion object {
+        private const val INIT_CLASS = "com.github.catvod.spider.Init"
+        private const val SPIDER_PKG = "com.github.catvod.spider."
+
+        /** 少数配置写成 csp_Xxx.csp_Yyy（想指定内部类），只取第一段 */
+        fun classNameOf(api: String): String = api.trim().substringBefore('.')
+
+        /** 反射的 InvocationTargetException 把真正的原因包了一层，挖出来 */
+        fun rootMessage(e: Throwable): String {
+            var t: Throwable = e
+            while (t.cause != null && t.cause !== t) t = t.cause!!
+            val name = t.javaClass.simpleName
+            val msg = t.message.orEmpty().take(200)
+            return if (msg.isBlank()) name else "$name: $msg"
+        }
+    }
+}

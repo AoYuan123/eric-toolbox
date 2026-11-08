@@ -7,7 +7,7 @@ package com.eric.toolbox.modules.vod.model
  * 排查线上问题时可以直接跟抓到的原始报文对得上，不用再翻译一层。
  */
 
-/** 站点类型。本 App 只支持走标准 HTTP 接口的站点。 */
+/** 站点类型。 */
 object SiteType {
     /** 苹果 CMS 的 XML 输出 */
     const val XML = 0
@@ -15,7 +15,11 @@ object SiteType {
     /** 苹果 CMS 的 JSON 输出 */
     const val JSON = 1
 
-    /** Spider：需要加载第三方 jar/dex 并执行里面的代码 —— 明确不支持 */
+    /**
+     * Spider：TVBox / 影视仓的插件站点。api 字段写的是插件里的类名
+     * （如 csp_DouDouGuard），要靠配置顶层的 spider 字段把插件包下下来、
+     * 加载进进程才有数据。走 [com.eric.toolbox.modules.vod.core.SpiderHub]。
+     */
     const val SPIDER = 3
 }
 
@@ -35,13 +39,16 @@ data class VodSite(
     /** 来自哪个订阅，用于在 UI 上分组展示 */
     val subId: String = "",
 ) {
-    /** Spider 类站点需要动态执行第三方代码，本 App 一律不支持。 */
+    /** type=3：要靠插件包才有数据，不能直接发 HTTP 请求 */
+    val isSpider: Boolean get() = type == SiteType.SPIDER
+
+    /** 标准接口站点：SiteClient 能直接处理 */
     val supported: Boolean get() = type != SiteType.SPIDER
 
     val unsupportedReason: String
-        get() = if (type == SiteType.SPIDER) "Spider 站点需要加载并执行第三方代码，本 App 不支持" else ""
+        get() = if (isSpider) "Spider 站点依赖配置里的插件包" else ""
 
-    /** 接口地址是否完整可用 */
+    /** 接口地址是否完整可用。Spider 站点的 api 是类名，不算地址 */
     val hasApi: Boolean get() = api.startsWith("http://") || api.startsWith("https://")
 }
 
@@ -78,7 +85,7 @@ data class VodCategory(
  */
 data class ConfigStats(
     val total: Int = 0,
-    /** type=3，需要执行远程脚本 */
+    /** type=3 的总数（含因缺插件包、或属于 JS 脚本而被跳过的） */
     val spider: Int = 0,
     /** api 缺失或不是 http(s) 绝对地址（影视仓常见的 ./lib/xxx.js 就算这类） */
     val noApi: Int = 0,
@@ -93,6 +100,11 @@ data class VodConfig(
     val sites: List<VodSite> = emptyList(),
     val parses: List<ParseRule> = emptyList(),
     val lives: List<LiveChannel> = emptyList(),
+    /**
+     * 顶层 spider 字段原文：插件包地址 + md5。
+     * 只有它是远程 http 地址时，这份配置里的 type=3 站点才有可能跑起来。
+     */
+    val spiderDecl: String = "",
     /** 站点自带的分类表，取不到就为空，由用户手工配置 */
     val categories: List<VodCategory> = emptyList(),
     val ua: String = "",

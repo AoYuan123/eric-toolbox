@@ -73,18 +73,19 @@ fun QuickAddScreen(onBack: () -> Unit, onChanged: () -> Unit = {}) {
             picked = emptySet()
             val r = QuickAdd.sniff(t)
             result = r
-            // 淘金结果默认把实测通过的都勾上，用户只需要取消不想要的
+            // 淘金结果默认把「实测通过」和「Spider 站点」都勾上：
+            // 粘一份 Spider 配置进来的人，要的正是那些站点，不勾等于白干
             if (r is QuickAdd.Result.Harvest) {
-                picked = r.candidates.filter { it.ok }.map { it.site.key }.toSet()
+                picked = r.candidates.filter { it.ok || it.spider }.map { it.site.key }.toSet()
             }
             busy = false
         }
     }
 
-    fun save(list: List<VodSite>) {
-        list.forEach { QuickAdd.addSite(ctx, it) }
+    fun save(cands: List<QuickAdd.Cand>) {
+        cands.forEach { QuickAdd.addSite(ctx, it.site, it.spiderDecl) }
         manual = QuickAdd.manualSites(ctx)
-        note = if (list.size == 1) "已添加「${list[0].name}」" else "已添加 ${list.size} 个站点"
+        note = if (cands.size == 1) "已添加「${cands[0].site.name}」" else "已添加 ${cands.size} 个站点"
         onChanged()
     }
 
@@ -137,7 +138,7 @@ fun QuickAddScreen(onBack: () -> Unit, onChanged: () -> Unit = {}) {
                 is QuickAdd.Result.Direct -> {
                     // 提成局部变量：lambda 里靠 smart cast 引用分支变量容易被编译器判成未转型
                     val d = r
-                    DirectCard(d) { save(listOf(d.site)) }
+                    DirectCard(d) { save(listOf(QuickAdd.Cand(site = d.site, ok = true))) }
                 }
                 is QuickAdd.Result.Harvest -> {
                     val h = r
@@ -148,9 +149,9 @@ fun QuickAddScreen(onBack: () -> Unit, onChanged: () -> Unit = {}) {
                             picked = if (key in picked) picked - key else picked + key
                         },
                         onSaveAll = {
-                            save(h.candidates.filter { it.ok && it.site.key in picked }.map { it.site })
+                            save(h.candidates.filter { (it.ok || it.spider) && it.site.key in picked })
                         },
-                        onSaveOne = { c -> save(listOf(c.site)) },
+                        onSaveOne = { c -> save(listOf(c)) },
                     )
                 }
                 is QuickAdd.Result.Failed -> FailedCard(r)
@@ -192,8 +193,8 @@ fun QuickAddScreen(onBack: () -> Unit, onChanged: () -> Unit = {}) {
                     modifier = Modifier.padding(horizontal = 4.dp),
                 )
                 HintText("标准接口：形如 https://xxx.com/api.php/provide/vod，粘进来就能搜能播")
-                HintText("整份配置：影视仓「接口设置」里那个地址，会把里面能直连的挑出来")
-                HintText("Spider 脚本：需要下载并执行远程代码，本 App 不支持，这是安全红线")
+                HintText("整份配置：影视仓「接口设置」里那个地址；藏在图片后面（图种）、带 // 注释的也能认出来")
+                HintText("Spider 站点：靠配置里的插件包取数据，加进来后第一次使用会联网下载插件")
             }
 
             Spacer(Modifier.height(16.dp))
@@ -242,6 +243,7 @@ private fun HarvestBlock(
     onSaveOne: (QuickAdd.Cand) -> Unit,
 ) {
     val st = r.stats
+    val spiderCount = r.candidates.count { it.spider }
     Column(
         Modifier
             .fillMaxWidth()
@@ -250,48 +252,53 @@ private fun HarvestBlock(
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Dot(if (r.okCount > 0) C.Ok else C.Warn)
+            Dot(if (r.okCount > 0 || spiderCount > 0) C.Ok else C.Warn)
             Text("整份配置", color = C.Muted, fontSize = 12.sp)
         }
 
         // 一行说清总量，避免「导入成功但搜不出东西」被当成 bug
         Text(
-            "共 ${st.total} 个站点 · 可直连 ${st.usable} 个 · 实测通 ${r.okCount} 个",
+            "共 ${st.total} 个站点 · 实测通 ${r.okCount} 个 · Spider ${spiderCount} 个",
             color = C.Text, fontSize = 14.sp,
         )
 
-        if (st.spider > 0) {
+        if (spiderCount > 0) {
             Text(
-                "其中 ${st.spider} 个是 Spider 脚本，要在 App 内执行远程代码，已跳过。",
+                "Spider 站点靠这份配置里的插件包取数据，第一次点开时会联网下载插件（1MB 以上）。",
                 color = C.Muted, fontSize = 12.sp, lineHeight = 18.sp,
             )
         }
 
         if (r.candidates.isEmpty()) {
             Text(
-                "这份配置里没有能直连的接口。换一个地址试试，或者直接从影视仓里找 api.php/provide/vod 那种。",
+                "这份配置里没有能加的站点。可能全是脚本类站点（要 JS 引擎），或者插件包地址下不下来。",
                 color = C.Warn, fontSize = 12.sp, lineHeight = 18.sp,
             )
             return@Column
         }
 
-        SectionLabel("可直连的接口")
+        SectionLabel("可添加的站点")
         r.candidates.forEach { c ->
+            val usable = c.ok || c.spider
             Row(
                 Modifier.fillMaxWidth().clickable { onToggle(c.site.key) }.padding(vertical = 7.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                CheckMark(c.site.key in picked && c.ok)
+                CheckMark(c.site.key in picked && usable)
                 Spacer(Modifier.width(10.dp))
                 Column(Modifier.weight(1f)) {
                     Text(c.site.name, color = C.Text, fontSize = 14.sp)
                     Text(
-                        if (c.ok) "${hostOf(c.site)} · ${c.hits} 部 · ${c.ms}ms" else "${hostOf(c.site)} · ${c.err}",
-                        color = if (c.ok) C.Muted else C.Warn,
+                        when {
+                            c.ok -> "${hostOf(c.site)} · ${c.hits} 部 · ${c.ms}ms"
+                            c.spider -> "Spider · ${c.site.api}"
+                            else -> "${hostOf(c.site)} · ${c.err}"
+                        },
+                        color = if (usable) C.Muted else C.Warn,
                         fontSize = 11.sp,
                     )
                 }
-                if (!c.ok) {
+                if (!usable) {
                     Text(
                         "仍要加", color = C.Muted, fontSize = 12.sp,
                         modifier = Modifier
@@ -302,12 +309,17 @@ private fun HarvestBlock(
             }
         }
 
-        if (r.okCount > 0) {
+        if (r.okCount > 0 || spiderCount > 0) {
             Button(
                 onClick = onSaveAll,
                 colors = ButtonDefaults.buttonColors(containerColor = C.Gold, contentColor = C.Bg),
                 modifier = Modifier.fillMaxWidth(),
-            ) { Text("添加选中的 ${picked.count { k -> r.candidates.any { it.ok && it.site.key == k } }} 个") }
+            ) {
+                val n = picked.count { k ->
+                    r.candidates.any { (it.ok || it.spider) && it.site.key == k }
+                }
+                Text("添加选中的 $n 个")
+            }
         }
     }
 }

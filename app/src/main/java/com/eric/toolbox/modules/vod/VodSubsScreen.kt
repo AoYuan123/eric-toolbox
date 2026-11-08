@@ -1,5 +1,6 @@
 package com.eric.toolbox.modules.vod
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -11,6 +12,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -36,11 +38,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.eric.toolbox.modules.vod.core.BuiltinSources
 import com.eric.toolbox.modules.vod.core.ConfigRepo
+import com.eric.toolbox.modules.vod.core.SpiderHub
 import com.eric.toolbox.modules.vod.core.VodPrefs
 import com.eric.toolbox.modules.vod.model.Episode
 import com.eric.toolbox.modules.vod.model.Subscription
@@ -62,6 +67,7 @@ fun MinePane(onOpenSubs: () -> Unit, onOpenQuickAdd: () -> Unit) {
     val ctx = LocalContext.current
     val v by VodModule.state.collectAsState()
     val scope = rememberCoroutineScope()
+    val clipboard = LocalClipboardManager.current
     val hasKey = VodPrefs.tmdbKey(ctx).isNotBlank()
 
     var tmdbInput by remember { mutableStateOf(VodPrefs.tmdbKey(ctx)) }
@@ -70,6 +76,7 @@ fun MinePane(onOpenSubs: () -> Unit, onOpenQuickAdd: () -> Unit) {
     var note by remember { mutableStateOf("") }
     // 用户可能把「推荐源」删了，给一个能加回来的入口，否则只能拷粘贴配置
     var hasPreset by remember { mutableStateOf(BuiltinSources.hasPresetSub(ctx)) }
+    var showDiag by remember { mutableStateOf(false) }
 
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
@@ -87,6 +94,45 @@ fun MinePane(onOpenSubs: () -> Unit, onOpenQuickAdd: () -> Unit) {
                         VodModule.reload(ctx)
                         VodModule.aggregate(ctx)
                     }
+                }
+            }
+            // Spider 插件的现场只有它自己知道，把日志露出来，出问题不用靠猜
+            RowItem(
+                "Spider 插件",
+                "",
+                if (SpiderHub.loadedCount() > 0) {
+                    "已加载 ${SpiderHub.loadedCount()} 个插件包 · 点开看日志"
+                } else {
+                    "导入带插件的配置后，加载过程记在这里"
+                },
+            ) { showDiag = !showDiag }
+        }
+        if (showDiag) {
+            val log = SpiderHub.logs()
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .background(C.Surface, RoundedCornerShape(10.dp))
+                    .padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text(
+                    log.ifBlank { "还没有记录。先去搜一次片，再回来看。" },
+                    color = C.Muted, fontSize = 10.sp, lineHeight = 15.sp,
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                    Text(
+                        "复制日志", color = C.Gold, fontSize = 12.sp,
+                        modifier = Modifier
+                            .clickable { clipboard.setText(AnnotatedString(log.ifBlank { "(空)" })) }
+                            .padding(vertical = 4.dp),
+                    )
+                    Text(
+                        "清空", color = C.Muted, fontSize = 12.sp,
+                        modifier = Modifier
+                            .clickable { SpiderHub.clearLogs(); showDiag = false }
+                            .padding(vertical = 4.dp),
+                    )
                 }
             }
         }

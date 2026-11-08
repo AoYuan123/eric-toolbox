@@ -4,6 +4,7 @@ import com.eric.toolbox.modules.vod.model.VodItem
 import com.eric.toolbox.modules.vod.model.VodSite
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 
@@ -42,25 +43,33 @@ object SearchHub {
         requireKnownQuality: Boolean = false,
     ): SearchOutcome = withContext(Dispatchers.IO) {
         val min = Quality.Level.fromRank(minQualityRank)
-        val targets = sites.filter { it.searchable && it.supported && it.hasApi }
+        // Spider 站点的 api 是类名不是地址，所以 hasApi 为 false，不能拿它当过滤条件
+        val targets = sites.filter { it.searchable && (it.hasApi || it.isSpider) }
         if (targets.isEmpty() || keyword.isBlank()) {
             return@withContext SearchOutcome(emptyList(), listOf("没有可搜索的站点"), 0, 0)
         }
         coroutineScope {
-            val jobs = targets.map { site ->
-                async { runCatching { SiteClient(site, ua, timeoutMs).search(keyword) } to site }
-            }
-            val scored = ArrayList<Pair<VodItem, Double>>()
+            val httpSites = targets.filter { !it.isSpider }
+            val spiderSites = targets.filter { it.isSpider }
+
+            val outcomes = ArrayList<Pair<VodSite, SiteClient.PageResult?>>()
             val errors = ArrayList<String>()
+
+            // 直连接口：本来就是纯网络请求，全并发
+            val httpJobs = httpSites.map { site -> async { site to query(site, keyword, ua, timeoutMs) } }
+            // Spider 站点：一个插件包里几十个类同时打网络既慢又容易被源站限流，4 个一批
+            val spiderResults = spiderSites.chunked(4).flatMap { batch ->
+                batch.map { site -> async { site to query(site, keyword, ua, timeoutMs) } }.awaitAll()
+            }
+            outcomes += httpJobs.map { it.await() }
+            outcomes += spiderResults
+
+            val scored = ArrayList<Pair<VodItem, Double>>()
             var dropped = 0
             var droppedQuality = 0
-            for (job in jobs) {
-                val (res, site) = job.await()
-                val page = res.getOrNull()
+            for ((site, page) in outcomes) {
                 if (page == null || !page.ok) {
-                    val msg = res.exceptionOrNull()?.let { VodHttp.messageOf(it) }
-                        ?: page?.error.orEmpty()
-                    errors += "「${site.name}」${msg.ifBlank { "无结果" }}"
+                    errors += "「${site.name}」${page?.error?.ifBlank { "无结果" } ?: "插件不可用"}"
                     continue
                 }
                 for (item in page.items.take(limitPerSite)) {
@@ -89,6 +98,26 @@ object SearchHub {
         }
     }
 
+    /**
+     * 单个站点的一次查询。Spider 与直连接口走两条完全不同的路，
+     * 但上层只关心「拿到一页结果，或者一句能看懂的失败原因」。
+     */
+    private suspend fun query(
+        site: VodSite,
+        keyword: String,
+        ua: String,
+        timeoutMs: Int,
+    ): SiteClient.PageResult = try {
+        if (site.isSpider) {
+            SpiderHub.search(site, keyword)
+                ?: SiteClient.PageResult(error = SpiderHub.lastError.ifBlank { "插件没加载起来" })
+        } else {
+            SiteClient(site, ua, timeoutMs).search(keyword)
+        }
+    } catch (e: Exception) {
+        SiteClient.PageResult(error = VodHttp.messageOf(e))
+    }
+
     suspend fun browse(
         site: VodSite,
         tid: String,
@@ -96,6 +125,11 @@ object SearchHub {
         ua: String = "",
         timeoutMs: Int = 15_000,
     ): SiteClient.PageResult = withContext(Dispatchers.IO) {
+        if (site.isSpider) {
+            val r = if (tid.isBlank()) SpiderHub.home(site, page) else SpiderHub.category(site, tid, page)
+            return@withContext r
+                ?: SiteClient.PageResult(error = SpiderHub.lastError.ifBlank { "插件没加载起来" })
+        }
         val client = SiteClient(site, ua, timeoutMs)
         if (tid.isBlank()) client.home(page) else client.category(tid, page)
     }
@@ -115,14 +149,17 @@ object SearchHub {
         perSite: Int = 24,
         overallTimeoutMs: Long = 12_000,
     ): List<VodItem> = withContext(Dispatchers.IO) {
-        val targets = sites.filter { it.supported && it.hasApi }
+        val httpTargets = sites.filter { it.supported && it.hasApi }
+        // 只有 Spider 站点的配置（饭太硬那类导航站分发的就是这种）首页也得有内容，
+        // 所以挑前两个拉一次；全拉一遍意味着几十个插件站点同时发请求，等不起。
+        val targets = if (httpTargets.isEmpty()) sites.filter { it.isSpider }.take(2) else httpTargets
         if (targets.isEmpty()) return@withContext emptyList()
         coroutineScope {
             val jobs = targets.map { site ->
                 async {
                     val page = runCatching {
                         kotlinx.coroutines.withTimeoutOrNull(overallTimeoutMs) {
-                            SiteClient(site, ua, timeoutMs).home(1)
+                            if (site.isSpider) SpiderHub.home(site, 1) else SiteClient(site, ua, timeoutMs).home(1)
                         }
                     }.getOrNull()
                     page?.takeIf { it.ok }?.items?.take(perSite).orEmpty()

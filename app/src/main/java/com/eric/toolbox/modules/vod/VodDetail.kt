@@ -109,16 +109,31 @@ fun DetailScreen(item: VodItem, onBack: () -> Unit) {
             Toast.makeText(ctx, "没有可播放的地址", Toast.LENGTH_SHORT).show()
             return
         }
-        PlayerActivity.start(
-            ctx = ctx,
-            title = full.name,
-            pic = full.pic,
-            sourceName = sourceName,
-            referer = VodModule.originFor(ctx, full.siteKey),
-            ua = v.ua,
-            episodes = episodes,
-            startIndex = index,
-        )
+        val referer = VodModule.originFor(ctx, full.siteKey)
+        val ua = v.ua
+        scope.launch {
+            // Spider 站点这一集给的可能是站内标识，要问一次插件才变成媒体地址。
+            // 已经是 m3u8/mp4 直链的话这步会原样返回，不额外发请求。
+            val ep = episodes.getOrNull(index)
+            val resolved = if (ep == null) "" else {
+                VodModule.resolvePlayUrl(ctx, full, sourceName, ep.url)
+            }
+            val list = if (ep != null && resolved.isNotBlank() && resolved != ep.url) {
+                episodes.toMutableList().also { it[index] = Episode(ep.name, resolved) }
+            } else {
+                episodes
+            }
+            PlayerActivity.start(
+                ctx = ctx,
+                title = full.name,
+                pic = full.pic,
+                sourceName = sourceName,
+                referer = referer,
+                ua = ua,
+                episodes = list,
+                startIndex = index,
+            )
+        }
     }
 
     Column(Modifier.fillMaxSize()) {

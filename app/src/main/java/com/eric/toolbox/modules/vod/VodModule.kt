@@ -18,6 +18,7 @@ import com.eric.toolbox.modules.vod.core.ConfigRepo
 import com.eric.toolbox.modules.vod.core.EpisodeParser
 import com.eric.toolbox.modules.vod.core.SearchHub
 import com.eric.toolbox.modules.vod.core.SiteClient
+import com.eric.toolbox.modules.vod.core.SpiderHub
 import com.eric.toolbox.modules.vod.core.TmdbClient
 import com.eric.toolbox.modules.vod.core.VodPrefs
 import com.eric.toolbox.modules.vod.model.ParseRule
@@ -83,6 +84,10 @@ object VodModule : ToolModule {
         // 还得自己去找一份 TVBox 配置，而市面上那些配置的点播部分基本都是 Spider。
         BuiltinSources.ensureSeeded(ctx)
         val m = ConfigRepo.merged(ctx)
+        // Spider 站点的插件声明跟着订阅走，重载时同步过去；
+        // 没有这一步，配置里的 spider 字段就只是段字符串，没人用得上。
+        SpiderHub.attach(ctx)
+        SpiderHub.register(m.configs)
         val remembered = VodPrefs.lastSiteKey(ctx)
         // 空串代表「全部站点」聚合。默认走聚合，站少的时候没必要先选站
         val siteKey = if (remembered.isNotBlank() && m.sites.any { it.key == remembered }) {
@@ -230,9 +235,37 @@ object VodModule : ToolModule {
     /** 详情页要拿完整播放串，列表页通常是空的。 */
     suspend fun detail(ctx: Context, item: VodItem): VodItem = withContext(Dispatchers.IO) {
         val site = findSite(ctx, item.siteKey) ?: return@withContext item
-        val result = SiteClient(site, _state.value.ua, _state.value.timeoutMs).detail(item.id)
+        val result = if (site.isSpider) {
+            SpiderHub.detail(site, item.id) ?: return@withContext item
+        } else {
+            SiteClient(site, _state.value.ua, _state.value.timeoutMs).detail(item.id)
+        }
         val full = result.items.firstOrNull()
         if (full != null && full.playUrl.isNotBlank()) full else item
+    }
+
+    /**
+     * 播放前把某一集换成真正能播的地址。
+     *
+     * 直连站点给的就是 m3u8，原样返回；Spider 站点有时候给的是站内标识
+     * （要经过 playerContent 才变成媒体地址），所以统一问一次插件。
+     * 拿不到就退回原地址——至少不会因为这一步把能播的也弄坏。
+     */
+    suspend fun resolvePlayUrl(ctx: Context, item: VodItem, flag: String, url: String): String =
+        withContext(Dispatchers.IO) {
+            val site = findSite(ctx, item.siteKey) ?: return@withContext url
+            if (!site.isSpider) return@withContext url
+            // 已经是媒体直链就别打扰插件：一集一问，40 集的剧集列表会慢得离谱
+            if (looksDirect(url)) return@withContext url
+            val p = SpiderHub.player(site, flag, url) ?: return@withContext url
+            p.url.ifBlank { url }
+        }
+
+    private fun looksDirect(u: String): Boolean {
+        if (!u.startsWith("http")) return false
+        val s = u.lowercase()
+        return s.contains(".m3u8") || s.contains(".mp4") || s.contains(".flv") ||
+            s.contains(".mkv") || s.contains(".ts")
     }
 
     fun playGroups(item: VodItem): List<PlayGroup> = EpisodeParser.parse(item.playFrom, item.playUrl)

@@ -19,13 +19,13 @@ import java.net.URL
  * 用户手里那条链接可能是三种完全不同的东西，界面上不该让他先理解 type 概念：
  *
  *  1. 标准苹果CMS接口（…/api.php/provide/vod）—— 直接就能搜能播，收成站点。
- *  2. 整份 TVBox / 影视仓配置 —— 里面混着 Spider 脚本和标准接口，
- *     把能直连的挑出来逐个实测，能用的列给用户勾选。
- *  3. Spider 脚本或普通网页 —— 说清为什么不行，别让人以为是 App 坏了。
+ *  2. 整份 TVBox / 影视仓配置 —— 里面混着 Spider 站点和标准接口。
+ *     Spider 站点不在这里实测（要下插件、要真机加载），只标出来；
+ *     标准接口逐个实测，能用的列给用户勾选。
+ *  3. 普通网页 —— 说清为什么不行，别让人以为是 App 坏了。
  *
- * 为什么不支持 Spider：影视仓那类 App 内置 JS 运行时，把远程 .js 下载下来执行，
- * 脚本里写着搜索地址怎么拼、网页怎么解析。要在本 App 复现，等于让配置作者
- * 在我们进程里跑任意代码，且需要额外塞一个 JS 引擎。这条线从 v1.0.10 起就没开过。
+ * 配置本身的还原交给 [ConfigParser]，它认得裸 JSON、整份 Base64、
+ * 以及藏在 JPEG 尾部的那种图种（饭太硬那类导航站的标准做法）。
  */
 object QuickAdd {
 
@@ -64,6 +64,14 @@ object QuickAdd {
         val cats: Int = 0,
         val ms: Long = 0,
         val err: String = "",
+        /**
+         * type=3：数据要靠配置里的插件包。这里不做 HTTP 实测
+         * （要下 1MB 以上的插件，且插件在真机上才能验证），
+         * 单独标出来，别让它和「实测失败」混在一起。
+         */
+        val spider: Boolean = false,
+        /** 该候选所属配置的插件声明，加站点时要一起存下来 */
+        val spiderDecl: String = "",
     )
 
     // ------------------------------------------------------------ 嗅探主流程
@@ -108,7 +116,7 @@ object QuickAdd {
         val cfg = runCatching { ConfigParser.parse(body, MANUAL_SUB_ID, MANUAL_SUB_NAME) }.getOrNull()
         if (cfg != null && cfg.stats.total > 0) {
             if (cfg.sites.isEmpty()) return@withContext Result.Harvest(emptyList(), cfg.stats)
-            return@withContext Result.Harvest(probeAll(cfg.sites), cfg.stats)
+            return@withContext Result.Harvest(probeAll(cfg.sites, cfg.spiderDecl), cfg.stats)
         }
 
         // 还有一种可能：用户给的地址本身是接口，但没带 ac 参数，返回的不是列表
@@ -135,31 +143,41 @@ object QuickAdd {
     }
 
     /** 逐个实测候选，分批并发，避免十几个请求同时打出去被源站封 */
-    private suspend fun probeAll(sites: List<VodSite>): List<Cand> = withContext(Dispatchers.IO) {
-        sites.chunked(4).flatMap { batch ->
-            batch.map { s ->
-                async {
-                    val t0 = System.currentTimeMillis()
-                    try {
-                        val body = VodHttp.get(withAcList(s.api), timeoutMs = 10_000)
-                        val r = readCms(body)
-                        val cost = System.currentTimeMillis() - t0
-                        if (r == null) {
-                            Cand(s, ok = false, ms = cost, err = "返回的不是接口数据")
-                        } else {
-                            Cand(s, ok = true, hits = r.hits, cats = r.cats, ms = cost)
+    private suspend fun probeAll(sites: List<VodSite>, spiderDecl: String): List<Cand> =
+        withContext(Dispatchers.IO) {
+            sites.chunked(4).flatMap { batch ->
+                batch.map { s ->
+                    async {
+                        // Spider 站点没法用 HTTP 探活：它的 api 是插件里的类名，
+                        // 真正的验证要等插件在真机上下载并加载完，这里只做标记。
+                        if (s.isSpider) {
+                            return@async Cand(
+                                site = s, ok = false,
+                                err = "Spider 站点，靠插件包取数据",
+                                spider = true, spiderDecl = spiderDecl,
+                            )
                         }
-                    } catch (e: Exception) {
-                        Cand(
-                            s, ok = false,
-                            ms = System.currentTimeMillis() - t0,
-                            err = VodHttp.messageOf(e),
-                        )
+                        val t0 = System.currentTimeMillis()
+                        try {
+                            val body = VodHttp.get(withAcList(s.api), timeoutMs = 10_000)
+                            val r = readCms(body)
+                            val cost = System.currentTimeMillis() - t0
+                            if (r == null) {
+                                Cand(s, ok = false, ms = cost, err = "返回的不是接口数据")
+                            } else {
+                                Cand(s, ok = true, hits = r.hits, cats = r.cats, ms = cost)
+                            }
+                        } catch (e: Exception) {
+                            Cand(
+                                s, ok = false,
+                                ms = System.currentTimeMillis() - t0,
+                                err = VodHttp.messageOf(e),
+                            )
+                        }
                     }
-                }
-            }.awaitAll()
+                }.awaitAll()
+            }
         }
-    }
 
     // -------------------------------------------------------------- 手动站点
 
@@ -170,26 +188,44 @@ object QuickAdd {
             .getOrNull()?.sites.orEmpty()
     }
 
-    /** 加一个站点；同 key 视为改名而不是重复添加 */
-    fun addSite(ctx: Context, site: VodSite) {
+    /**
+     * 加一个站点；同 key 视为改名而不是重复添加。
+     *
+     * [spiderDecl] 是这个站点依赖的插件包声明，必须一起存下来——
+     * Spider 站点的 api 只是个类名，没有插件包它就等于一块砖。
+     */
+    fun addSite(ctx: Context, site: VodSite, spiderDecl: String = "") {
         val list = manualSites(ctx).toMutableList()
         val i = list.indexOfFirst { it.key == site.key }
         if (i >= 0) list[i] = site else list.add(site)
-        persist(ctx, list)
+        val decl = spiderDecl.ifBlank { currentDecl(ctx) }
+        persist(ctx, list, decl)
     }
 
     fun removeSite(ctx: Context, key: String) {
-        persist(ctx, manualSites(ctx).filterNot { it.key == key })
+        persist(ctx, manualSites(ctx).filterNot { it.key == key }, currentDecl(ctx))
     }
 
     fun renameSite(ctx: Context, key: String, name: String) {
         val list = manualSites(ctx)
         val i = list.indexOfFirst { it.key == key }
         if (i < 0 || name.isBlank()) return
-        persist(ctx, list.toMutableList().also { it[i] = it[i].copy(name = name.trim()) })
+        persist(
+            ctx,
+            list.toMutableList().also { it[i] = it[i].copy(name = name.trim()) },
+            currentDecl(ctx),
+        )
     }
 
-    private fun persist(ctx: Context, sites: List<VodSite>) {
+    /** 手动订阅里现存的插件声明 */
+    private fun currentDecl(ctx: Context): String {
+        val raw = ConfigRepo.subscriptions(ctx).firstOrNull { it.id == MANUAL_SUB_ID }?.rawJson.orEmpty()
+        if (raw.isBlank()) return ""
+        return runCatching { ConfigParser.parse(raw, MANUAL_SUB_ID, MANUAL_SUB_NAME).spiderDecl }
+            .getOrDefault("")
+    }
+
+    private fun persist(ctx: Context, sites: List<VodSite>, spiderDecl: String) {
         // 全删光就把订阅本身也清掉，别在列表里留个空壳
         if (sites.isEmpty()) {
             ConfigRepo.remove(ctx, MANUAL_SUB_ID)
@@ -203,6 +239,8 @@ object QuickAdd {
                     put("name", s.name)
                     put("type", s.type)
                     put("api", s.api)
+                    // ext 是 Spider 站点的站点级参数，丢了有些站会直接空结果
+                    if (s.ext.isNotBlank()) put("ext", s.ext)
                     put("searchable", true)
                 },
             )
@@ -210,6 +248,8 @@ object QuickAdd {
         val json = JSONObject().apply {
             put("sites", arr)
             put("name", MANUAL_SUB_NAME)
+            // 插件声明挂在这份本地订阅上，Spider 站点才找得到自己的插件包
+            if (spiderDecl.isNotBlank()) put("spider", spiderDecl)
         }.toString()
         ConfigRepo.upsert(
             ctx,

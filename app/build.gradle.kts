@@ -82,6 +82,13 @@ dependencies {
     // 读书 › 听书：通知栏/锁屏播放控制、耳机按键（MediaSessionCompat + MediaStyle）
     implementation("androidx.media:media:1.7.0")
 
+    // 影视板块：TVBox 的 Spider 插件运行时。
+    // 这些 jar 是照 TVBox 的类签名编译的，运行时必须能解析到 okhttp3 / gson，
+    // 否则一加载就 NoClassDefFoundError。okhttp 本来就被 Coil 带进来了，
+    // 这里显式声明是为了锁住版本（3.x 与 4.x 的类名/方法签名一致，jar 都能用）。
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    implementation("com.google.code.gson:gson:2.10.1")
+
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20240303")
 }
