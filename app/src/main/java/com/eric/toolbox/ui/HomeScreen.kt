@@ -1,143 +1,248 @@
 package com.eric.toolbox.ui
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
+import androidx.compose.material.icons.outlined.Pause
+import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.eric.toolbox.Route
-import com.eric.toolbox.core.Category
 import com.eric.toolbox.core.Heartbeat
 import com.eric.toolbox.core.ModuleRegistry
 import com.eric.toolbox.core.MonitorService
-import com.eric.toolbox.core.RunWindow
+import com.eric.toolbox.core.Store
 import com.eric.toolbox.core.ToolModule
+import com.eric.toolbox.modules.english.EnglishStore
+import com.eric.toolbox.modules.gold.GoldModule
+import com.eric.toolbox.modules.read.Library
+import com.eric.toolbox.modules.read.Listen
+import com.eric.toolbox.modules.trials.TrialModule
 import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+/** 模块显示名（中英）。 */
+fun moduleName(m: ToolModule): String = when (m.id) {
+    "gold" -> tr("实时金价", "Gold")
+    "trials" -> tr("临床试验", "Trials")
+    "read" -> tr("读书", "Reading")
+    "translate" -> tr("翻译", "Translate")
+    "datecalc" -> tr("日期计算", "Dates")
+    "english" -> tr("学英语", "English")
+    "ai" -> tr("AI 管家", "AI")
+    else -> m.name
+}
+
+/** V2 首页：便当盒布局，主角是金价（点阵数字），其余按“今天要用到的”排。 */
 @Composable
 fun HomeScreen(go: (Route) -> Unit) {
     val ctx = LocalContext.current
     var tick by remember { mutableLongStateOf(0L) }
     LaunchedEffect(Unit) { while (true) { delay(5_000); tick++ } }
+    val visible = remember(tick) { ModuleRegistry.visibleOrdered(ctx).map { it.id }.toSet() }
+    val running = remember(tick) { ModuleRegistry.all.count { it.background?.isEnabled(ctx) == true } }
+    val now = System.currentTimeMillis()
+    val clock = SimpleDateFormat(if (I18n.en) "MMM d EEE HH:mm" else "M月d日 EEE HH:mm", if (I18n.en) Locale.US else Locale.CHINA).format(Date(now))
 
-    val modules = remember(tick) { ModuleRegistry.visibleOrdered(ctx) }
-    val runningCount = remember(tick) { ModuleRegistry.all.count { it.background?.isEnabled(ctx) == true } }
-    val beat = remember(tick) { Heartbeat.last(ctx) }
-    val expectNext = remember(tick) { Heartbeat.expectedNext(ctx) }
-
-    Column(
-        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
-    ) {
-        Text("Eric的百宝箱", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = C.Text)
-
-        HealthBar(runningCount, beat, expectNext, onFix = { MonitorService.sync(ctx); go(Route.KeepAlive) })
-
-        Row(
-            Modifier.fillMaxWidth().heightIn(min = 56.dp).background(C.GoldBg, RoundedCornerShape(16.dp))
-                .clickable { go(Route.Module("ai")) }.padding(horizontal = 16.dp),
-            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            Text("✦", color = C.Gold, fontSize = 20.sp)
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Row(Modifier.fillMaxWidth().padding(start = 4.dp, end = 4.dp, top = 18.dp, bottom = 4.dp), verticalAlignment = Alignment.Bottom) {
             Column(Modifier.weight(1f)) {
-                Text("AI 管家", color = C.Gold, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                Text("问我，或让我帮你改设置 · 按住🎙说话", color = C.Muted, fontSize = 12.sp)
+                Text(tr("百宝箱", "Toolbox"), color = C.Text, fontSize = 24.sp, fontWeight = FontWeight.Bold)
+                Text(clock, color = C.Muted, fontSize = 12.sp, style = NumStyle)
             }
-            Text("›", color = C.Gold, fontSize = 20.sp)
+            Health(running, tick) { MonitorService.sync(ctx); go(Route.KeepAlive) }
         }
-
-        for (cat in Category.entries) {
-            val list = modules.filter { it.category == cat && it.id != "ai" }
-            SectionLabel(cat.title)
-            if (list.isEmpty()) {
-                EmptySlot(if (cat == Category.MONITOR) "暂无监控模块" else "以后添加的工具会出现在这里")
-            } else {
-                list.chunked(2).forEach { row ->
-                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        row.forEach { m -> ModuleTile(m, Modifier.weight(1f)) { go(Route.Module(m.id)) } }
-                        if (row.size == 1) Box(Modifier.weight(1f))
+        if ("gold" in visible) GoldTile { go(Route.Module("gold")) }
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            EnglishTile(Modifier.weight(1f), tick) { go(Route.English) }
+            ListenTile(Modifier.weight(1f)) { go(Route.Module("read")) }
+        }
+        if ("trials" in visible) TrialsTile(tick) { go(Route.Module("trials")) }
+        val tools = ModuleRegistry.visibleOrdered(ctx).filter { it.id !in setOf("gold", "trials", "english", "ai") }
+        if (tools.isNotEmpty()) {
+            Caption(tr("工具", "Tools"), Modifier.padding(start = 4.dp, top = 4.dp))
+            tools.chunked(4).forEach { row ->
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    row.forEach { m ->
+                        Tile(Modifier.weight(1f).heightIn(min = 86.dp), onClick = { go(Route.Module(m.id)) }) {
+                            Icon(m.icon, null, tint = C.Text, modifier = Modifier.size(22.dp))
+                            Spacer(Modifier.weight(1f).heightIn(min = 14.dp))
+                            Text(moduleName(m), color = C.Text, fontSize = 13.sp, maxLines = 1)
+                        }
                     }
+                    repeat(4 - row.size) { Box(Modifier.weight(1f)) }
                 }
             }
         }
-
+        Spacer(Modifier.height(12.dp))
     }
 }
 
 @Composable
-private fun HealthBar(runningCount: Int, beatMs: Long, expectNextMs: Long, onFix: () -> Unit) {
-    val now = System.currentTimeMillis()
-    val fmt = SimpleDateFormat("HH:mm", Locale.CHINA)
-    val (text, fg, bg) = when {
-        runningCount == 0 -> Triple("没有开启后台监控", C.Muted, C.Surface)
-        !MonitorService.running || beatMs == 0L || now - expectNextMs > 3 * 60_000 ->
-            Triple("后台可能已被系统停止 · 点此修复", C.Warn, C.WarnBg)
-        !RunWindow.isOpen(LocalContext.current) ->
-            Triple("后台运行中 · 提醒时段外只更新数据（${RunWindow.describe(LocalContext.current)} 提醒）", C.Ok, C.OkBg)
-        else -> Triple("后台运行正常 · $runningCount 个监控在跑", C.Ok, C.OkBg)
-    }
-    Row(
-        Modifier.fillMaxWidth().background(bg, RoundedCornerShape(14.dp)).clickable(onClick = onFix)
-            .padding(horizontal = 14.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        Box(Modifier.size(8.dp).background(fg, CircleShape))
-        Text(text, color = fg, fontSize = 13.sp, modifier = Modifier.weight(1f))
-        if (beatMs > 0) Text("心跳 ${fmt.format(Date(beatMs))}", color = C.Muted, fontSize = 12.sp)
-    }
-}
-
-@Composable
-private fun ModuleTile(m: ToolModule, modifier: Modifier, onClick: () -> Unit) {
+private fun Health(running: Int, tick: Long, onClick: () -> Unit) {
     val ctx = LocalContext.current
-    Column(
-        modifier.heightIn(min = 132.dp).background(C.Surface, RoundedCornerShape(20.dp)).clickable(onClick = onClick).padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.size(36.dp).background(C.GoldBg, RoundedCornerShape(12.dp)), contentAlignment = Alignment.Center) {
-                Icon(m.icon, null, tint = C.Gold, modifier = Modifier.size(20.dp))
-            }
-            Box(Modifier.weight(1f))
-            if (m.background?.isEnabled(ctx) == true) Text("运行中", color = C.Ok, fontSize = 11.sp)
-        }
-        Text(m.name, color = C.Text, fontSize = 15.sp, fontWeight = FontWeight.Medium)
-        m.HomeSummary()
+    val beat = remember(tick) { Heartbeat.last(ctx) }
+    val expect = remember(tick) { Heartbeat.expectedNext(ctx) }
+    val now = System.currentTimeMillis()
+    val bad = running > 0 && (!MonitorService.running || beat == 0L || now - expect > 3 * 60_000)
+    val (text, color) = when {
+        running == 0 -> tr("后台未开启", "Background off") to C.Muted
+        bad -> tr("后台可能被停止 · 修复", "Background stopped · fix") to C.Warn
+        else -> tr("后台 $running 项运行中", "$running running") to C.Muted
+    }
+    Row(Modifier.press(onClick = onClick).padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        Box(Modifier.size(7.dp).background(if (bad) C.Warn else if (running == 0) C.Line else C.Ok, CircleShape))
+        Text(text, color = color, fontSize = 12.sp)
     }
 }
 
 @Composable
-private fun EmptySlot(text: String) {
-    Box(
-        Modifier.fillMaxWidth().border(1.dp, C.Line, RoundedCornerShape(20.dp)).padding(16.dp),
-    ) { Text(text, color = C.Muted, fontSize = 13.sp) }
+private fun GoldTile(onClick: () -> Unit) {
+    val ctx = LocalContext.current
+    val snap by GoldModule.snapshot.collectAsState()
+    LaunchedEffect(Unit) { val s = GoldModule.snapshot.value; if (s == null || System.currentTimeMillis() - s.fetchedAtMs > 60_000) runCatching { GoldModule.refresh(ctx) } }
+    val q = snap?.market
+    val price = q?.price ?: snap?.td?.price
+    val prev = q?.prevClose
+    val cfg = remember { GoldModule.config(ctx) }
+    val nextTier = remember(snap) { GoldModule.lastAlerted(ctx) - cfg.step }
+    val series = remember(snap) { GoldModule.loadBankSeries(ctx).mapNotNull { it.jcj }.takeLast(40) }
+    Tile(strong = true, onClick = onClick) {
+        Row {
+            Caption(tr("上海金 Au99.99 · 元/克", "Au99.99 · CNY/g"), Modifier.weight(1f))
+            Caption(q?.timeMs?.let { SimpleDateFormat("HH:mm:ss", Locale.CHINA).format(Date(it)) } ?: "--:--")
+        }
+        Spacer(Modifier.height(10.dp))
+        if (price != null) DotMatrix("%.2f".format(price), dot = 8.dp) else DotMatrix("---.--", dot = 8.dp, color = C.Muted)
+        Spacer(Modifier.height(10.dp))
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+            if (price != null && prev != null) {
+                val d = price - prev
+                Text("%+.2f  %+.2f%%".format(d, d / prev * 100), color = if (d >= 0) C.Up else C.Down, fontSize = 13.sp, style = NumStyle)
+            }
+            if (price != null) Text(
+                if (price > nextTier) tr("距 $nextTier 还差 %.2f".format(price - nextTier), "%.2f above $nextTier".format(price - nextTier))
+                else tr("已低于 $nextTier", "below $nextTier"),
+                color = C.Muted, fontSize = 12.sp, style = NumStyle,
+            )
+            Spacer(Modifier.weight(1f))
+            if (series.size >= 3) Spark(series)
+        }
+        snap?.bank?.jcj?.let { j ->
+            Spacer(Modifier.height(8.dp))
+            Text(tr("工行积存金 %.2f", "ICBC gold savings %.2f").format(j), color = C.Muted, fontSize = 12.sp, style = NumStyle)
+        }
+    }
 }
+
+@Composable
+private fun Spark(values: List<Double>) {
+    val lo = values.min(); val hi = values.max(); val span = (hi - lo).takeIf { it > 1e-9 } ?: 1.0
+    val line = C.Muted; val dot = C.Gold
+    Canvas(Modifier.size(84.dp, 24.dp)) {
+        val stepX = size.width / (values.size - 1)
+        fun y(v: Double) = (size.height - ((v - lo) / span * size.height)).toFloat()
+        for (i in 1 until values.size) drawLine(line, Offset((i - 1) * stepX, y(values[i - 1])), Offset(i * stepX, y(values[i])), 3f, StrokeCap.Round)
+        drawCircle(dot, 5f, Offset(size.width, y(values.last())))
+    }
+}
+
+@Composable
+private fun EnglishTile(modifier: Modifier, tick: Long, onClick: () -> Unit) {
+    val ctx = LocalContext.current
+    val done = remember(tick) { EnglishStore.doneToday(ctx) }
+    val due = remember(tick) { EnglishStore.dueCount(ctx) }
+    val newLeft = remember(tick) { (EnglishStore.newLimit(ctx) - EnglishStore.newToday(ctx)).coerceAtLeast(0) }
+    val week = remember(tick) { EnglishStore.weekDays(ctx) }
+    Tile(modifier.heightIn(min = 156.dp), onClick = onClick) {
+        Caption(tr("学英语 · 今天", "English · today"))
+        Spacer(Modifier.height(10.dp))
+        Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            DotMatrix(done.toString(), dot = 6.dp)
+            Text(tr("已练", "done"), color = C.Muted, fontSize = 12.sp, modifier = Modifier.padding(bottom = 2.dp))
+        }
+        Spacer(Modifier.height(10.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) { week.forEach { on -> Box(Modifier.weight(1f).height(5.dp).background(if (on) C.Text else C.Line, RoundedCornerShape(3.dp))) } }
+        Spacer(Modifier.weight(1f).heightIn(min = 8.dp))
+        Caption(tr("复习 $due · 新词 $newLeft", "$due due · $newLeft new"))
+    }
+}
+
+@Composable
+private fun ListenTile(modifier: Modifier, onClick: () -> Unit) {
+    val ctx = LocalContext.current
+    val book = remember(Listen.bookId) { Library.recent(ctx).firstOrNull() }
+    Tile(modifier.heightIn(min = 156.dp), onClick = onClick) {
+        Caption(if (Listen.active) tr("正在听", "Listening") else tr("最近在读", "Reading"))
+        Spacer(Modifier.height(8.dp))
+        val title = if (Listen.active) Listen.bookTitle else book?.title
+        Text(title ?: tr("书架还是空的", "No books yet"), color = C.Text, fontSize = 15.sp, fontWeight = FontWeight.Medium, maxLines = 2, lineHeight = 20.sp)
+        if (book != null && !Listen.active) Caption(tr("读到 %.0f%%", "%.0f%% read").format(book.progress * 100))
+        Spacer(Modifier.weight(1f).heightIn(min = 8.dp))
+        if (book != null) Meter(book.progress.toFloat())
+        Spacer(Modifier.height(10.dp))
+        if (book != null || Listen.active) Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(34.dp).background(C.Text, CircleShape).press {
+                if (Listen.active) Listen.toggle()
+                else book?.let { b -> runCatching { Listen.startTts(ctx, b, if (b.listenChapter >= 0) b.listenChapter else b.chapter, if (b.listenChapter >= 0) b.listenSentence else 0) } }
+            }, contentAlignment = Alignment.Center) {
+                Icon(if (Listen.playing) Icons.Outlined.Pause else Icons.Outlined.PlayArrow, null, tint = C.Bg, modifier = Modifier.size(20.dp))
+            }
+            Spacer(Modifier.width(8.dp))
+            Caption(if (Listen.playing) tr("朗读中", "Playing") else tr("接着听", "Resume"))
+        }
+    }
+}
+
+@Composable
+private fun TrialsTile(tick: Long, onClick: () -> Unit) {
+    val ctx = LocalContext.current
+    val seen = remember(tick) { Store.global(ctx).getLong("trials_seen", 0L) }
+    val fresh = remember(tick) { TrialModule.changes(ctx).count { it.atMs > seen } }
+    val subs = remember(tick) { TrialModule.subs(ctx).size }
+    Tile(onClick = { Store.global(ctx).edit().putLong("trials_seen", System.currentTimeMillis()).apply(); onClick() }) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Box(Modifier.size(9.dp).background(if (fresh > 0) C.Gold else C.Line, CircleShape))
+            Column(Modifier.weight(1f)) {
+                Text(if (fresh > 0) tr("临床试验有 $fresh 项新变化", "$fresh new trial updates") else tr("临床试验暂无新变化", "No new trial updates"), color = C.Text, fontSize = 14.sp)
+                Caption(tr("关注 $subs 组 · 每天 9:00 / 18:00 检查", "$subs watches · checked 9:00 / 18:00"))
+            }
+            Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, null, tint = C.Muted)
+        }
+    }
+}
+

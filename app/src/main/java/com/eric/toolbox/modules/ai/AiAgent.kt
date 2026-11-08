@@ -25,6 +25,8 @@ object AiAgent {
     /** 每次得到最终回答时 +1（界面据此决定要不要朗读）。 */
     var replied by mutableStateOf(0); private set
     private var loaded = false
+    /** 底部 AI 键长按进来时为 true：对话页一打开就开始听。 */
+    var voiceOnOpen = false
 
     class Pending(val calls: List<Pair<AiLogic.ToolCall, AiTools.Plan>>)
 

@@ -231,6 +231,8 @@ private fun AiChat(onBack: () -> Unit, openSettings: () -> Unit) {
         return true
     }
 
+    LaunchedEffect(Unit) { if (AiAgent.voiceOnOpen) { AiAgent.voiceOnOpen = false; startListen() } }
+
     Column(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth().padding(start = 4.dp, end = 12.dp, top = 8.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             TopBarBack(onBack)

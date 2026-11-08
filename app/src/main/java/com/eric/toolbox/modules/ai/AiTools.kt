@@ -243,9 +243,9 @@ object AiTools {
             val u = Updater.check(); UpdateBadge.set(ctx, u)
             if (u == null) "已是最新版本 v${BuildConfig.VERSION_NAME}" else "有新版本 v${u.versionName}（${u.source}），请到「我的 › 检查更新」点下载安装"
         }),
-        Tool("set_theme", "global", "修改 主题", "切换 App 主题。", obj("theme" to str("主题", listOf("dark", "ivory", "green", "system")), required = listOf("theme")), plan = { ctx, a ->
+        Tool("set_theme", "global", "修改 主题", "切换 App 主题。", obj("theme" to str("主题", listOf("dark", "ivory", "system")), required = listOf("theme")), plan = { ctx, a ->
             val k = a.optString("theme"); val old = ThemeManager.key(ctx)
-            require(k in listOf("dark", "ivory", "green", "system")) { "没有这个主题" }
+            require(k in listOf("dark", "ivory", "system")) { "没有这个主题" }
             require(k != old) { "现在已经是${themeName(k)}" }
             Plan("global", "主题 ${themeName(old)} → ${themeName(k)}", listOf("主题" to "${themeName(old)} → ${themeName(k)}"), mapOf("global" to listOf("theme"))) {
                 withContext(Dispatchers.Main) { ThemeManager.set(ctx, k) }; "已切换"
@@ -275,7 +275,7 @@ object AiTools {
     )
 
     private fun onOff(b: Boolean) = if (b) "开" else "关"
-    private fun themeName(k: String) = when (k) { "ivory" -> "象牙白"; "green" -> "墨绿"; "system" -> "跟随系统"; else -> "曜石黑" }
+    private fun themeName(k: String) = when (k) { "ivory" -> "浅色"; "system" -> "跟随系统"; else -> "深色" }
 
     private fun trialParams() = obj(
         "type" to str("关键词类型：intr 药物/干预，cond 疾病，spons 申办方，nct 编号", listOf("intr", "cond", "spons", "nct")),

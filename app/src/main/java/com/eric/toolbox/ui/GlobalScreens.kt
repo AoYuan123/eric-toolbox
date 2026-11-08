@@ -35,6 +35,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -105,77 +106,69 @@ fun MineScreen(go: (Route) -> Unit) {
     val windowText = remember(tick, showWindow) { RunWindow.describe(ctx) }
 
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text("我的", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = C.Text)
-        Row(
-            Modifier.fillMaxWidth().background(C.Surface, RoundedCornerShape(18.dp)).padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp),
-        ) {
-            Box(Modifier.size(52.dp).background(C.GoldBg, CircleShape), contentAlignment = Alignment.Center) {
-                Text("E", color = C.Gold, fontSize = 22.sp, fontWeight = FontWeight.Bold)
-            }
+        Text(tr("我的", "Me"), fontSize = 22.sp, fontWeight = FontWeight.Bold, color = C.Text)
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp), modifier = Modifier.padding(vertical = 4.dp)) {
+            Box(Modifier.size(52.dp).background(C.Surface, CircleShape), contentAlignment = Alignment.Center) { Text("E", color = C.Text, fontSize = 22.sp, fontWeight = FontWeight.Bold) }
             Column {
                 Text("Eric", color = C.Text, fontSize = 17.sp, fontWeight = FontWeight.Medium)
-                Text("v${BuildConfig.VERSION_NAME} · ${ModuleRegistry.all.size} 个模块", color = C.Muted, fontSize = 12.sp)
+                Text("v${BuildConfig.VERSION_NAME}", color = C.Muted, fontSize = 12.sp, style = NumStyle)
             }
         }
+        val newRec = remember(tick) { newRecordCount(ctx) }
+        ListCard {
+            Row(Modifier.fillMaxWidth().heightIn(min = 54.dp).press { go(Route.Records) }, verticalAlignment = Alignment.CenterVertically) {
+                Text(tr("提醒记录", "Alerts"), color = C.Text, fontSize = 15.sp, modifier = Modifier.weight(1f))
+                if (newRec > 0) Text(tr("$newRec 条新", "$newRec new"), color = Color.White, fontSize = 12.sp, modifier = Modifier.background(Color(0xFFE5484D), RoundedCornerShape(10.dp)).padding(horizontal = 8.dp, vertical = 1.dp))
+                Text("  ›", color = C.Muted, fontSize = 16.sp)
+            }
+            RowItem(tr("存储空间", "Storage"), remember(tick) { formatBytes(appDataBytes(ctx)) }, onClick = { go(Route.Storage) })
+        }
 
-        SectionLabel("主题")
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            val options = Palettes.all.map { it.key to it.name } + ("system" to "跟随系统")
-            options.forEach { (k, name) ->
-                val p = Palettes.all.firstOrNull { it.key == k }
-                val sel = themeKey == k
-                Column(
-                    Modifier.weight(1f).background(C.Surface, RoundedCornerShape(16.dp))
-                        .border(2.dp, if (sel) C.Gold else Color.Transparent, RoundedCornerShape(16.dp))
-                        .clickable { themeKey = k; ThemeManager.set(ctx, k) }
-                        .padding(vertical = 10.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    Box(
-                        Modifier.size(44.dp, 30.dp).background(p?.bg ?: Color(0xFF5A606B), RoundedCornerShape(8.dp)).padding(4.dp),
-                        contentAlignment = Alignment.BottomStart,
-                    ) { Box(Modifier.size(18.dp, 6.dp).background(p?.gold ?: Color(0xFFE8BE5A), RoundedCornerShape(3.dp))) }
-                    Text(name, color = C.Text, fontSize = 12.sp)
+        SectionLabel(tr("外观与语言", "Appearance & language"))
+        ListCard {
+            Row(Modifier.fillMaxWidth().heightIn(min = 56.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(tr("外观", "Theme"), color = C.Text, fontSize = 15.sp, modifier = Modifier.weight(1f))
+                Segmented(listOf("dark" to tr("深色", "Dark"), "ivory" to tr("浅色", "Light"), "system" to tr("跟随系统", "Auto")), themeKey.let { if (it == "green") "dark" else it }, compact = true) {
+                    themeKey = it; ThemeManager.set(ctx, it)
                 }
             }
-        }
-
-        SectionLabel("提醒与后台")
-        ListCard {
-            RowItem("通知与提醒", "系统通知设置", onClick = { openAppNotificationSettings(ctx) })
-            RowItem("邮件提醒", if (Mailer.ready(ctx)) "已开启" else if (Mailer.config(ctx).enabled) "未填完" else "未开启", onClick = { go(Route.Mail) })
-            RowItem("发送一条测试提醒", testMsg, onClick = {
-                Notifier.test(ctx); testMsg = if (Notifier.canPost(ctx)) "已发送" else "通知未开启"
-            })
-            RowItem("后台保活设置", "$keepAliveDone / 5 项已完成", onClick = { go(Route.KeepAlive) })
-            RowItem("提醒时段", windowText, sub = "数据全天更新；时段外的跌档在时段开始时汇总提醒一次", onClick = { showWindow = true })
-        }
-
-        SectionLabel("通用")
-        ListCard {
-            RowItem("语言", "简体中文", onClick = { showLang = true })
-            RowItem("整理首页模块", "排序 / 隐藏", onClick = { go(Route.Arrange) })
-            RowItem("涨跌颜色", if (redUp) "红涨绿跌" else "绿涨红跌", onClick = {
+            RowItem(tr("语言", "Language"), I18n.label(I18n.setting), onClick = { showLang = true })
+            RowItem(tr("涨跌颜色", "Up / down colors"), if (redUp) tr("红涨绿跌", "Red up") else tr("绿涨红跌", "Green up"), onClick = {
                 redUp = !redUp; ThemeManager.setRedUp(ctx, redUp)
             })
-            RowItem("数据备份与恢复", "", onClick = { go(Route.Backup) })
         }
 
-        SectionLabel("关于")
+        SectionLabel(tr("提醒与后台", "Alerts & background"))
+        ListCard {
+            RowItem(tr("通知与提醒", "Notifications"), "系统通知设置", onClick = { openAppNotificationSettings(ctx) })
+            RowItem(tr("邮件提醒", "Email alerts"), if (Mailer.ready(ctx)) "已开启" else if (Mailer.config(ctx).enabled) "未填完" else "未开启", onClick = { go(Route.Mail) })
+            RowItem(tr("发送一条测试提醒", "Send a test alert"), testMsg, onClick = {
+                Notifier.test(ctx); testMsg = if (Notifier.canPost(ctx)) "已发送" else "通知未开启"
+            })
+            RowItem(tr("后台保活设置", "Keep-alive setup"), "$keepAliveDone / 5 项已完成", onClick = { go(Route.KeepAlive) })
+            RowItem(tr("提醒时段", "Alert hours"), windowText, sub = "数据全天更新；时段外的跌档在时段开始时汇总提醒一次", onClick = { showWindow = true })
+        }
+
+        SectionLabel(tr("通用", "General"))
+        ListCard {
+            RowItem(tr("整理首页模块", "Arrange home"), "排序 / 隐藏", onClick = { go(Route.Arrange) })
+            RowItem(tr("数据备份与恢复", "Backup & restore"), "", onClick = { go(Route.Backup) })
+        }
+
+        SectionLabel(tr("关于", "About"))
         ListCard {
             UpdateBadge.tick
             val hasNew = UpdateBadge.has(ctx)
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (hasNew && update == null) Box(Modifier.padding(end = 8.dp).size(8.dp).background(Color(0xFFE5484D), CircleShape))
                 Box(Modifier.weight(1f)) {
-            RowItem("检查更新", updateMsg.ifBlank { if (hasNew) "有新版本 v${UpdateBadge.seenName(ctx)}，点这里更新" else "当前 v${BuildConfig.VERSION_NAME}" }, onClick = {
+            RowItem(tr("检查更新", "Check for updates"), updateMsg.ifBlank { if (hasNew) "有新版本 v${UpdateBadge.seenName(ctx)}，点这里更新" else "当前 v${BuildConfig.VERSION_NAME}" }, onClick = {
                 updateMsg = "正在检查…"
                 scope.launch {
                     updateMsg = try {
                         update = Updater.check()
                         UpdateBadge.set(ctx, update)
-                        if (update == null) "已是最新版本" else "发现新版本 v${update!!.versionName}（${update!!.source}）"
+                        if (update == null) tr("已是最新版本", "Up to date") else "发现新版本 v${update!!.versionName}（${update!!.source}）"
                     } catch (e: Exception) {
                         "检查失败：${e.message ?: "网络错误"}"
                     }
@@ -221,7 +214,7 @@ fun MineScreen(go: (Route) -> Unit) {
                 ) { Text(if (ApkInstaller.downloaded(ctx, u.versionCode) != null && !dlBusy) "安装 v${u.versionName}" else "下载并安装 v${u.versionName}") }
                 dlMsg?.let { Text(it, color = C.Muted, fontSize = 12.sp, modifier = Modifier.padding(bottom = 6.dp)) }
             }
-            RowItem("数据来源", "东方财富 · 新浪 · 工商银行")
+            RowItem(tr("数据来源", "Data sources"), "东方财富 · 新浪 · 工商银行")
         }
         Text("行情数据来自各网站公开页面，仅供个人参考。", color = C.Muted, fontSize = 11.sp, modifier = Modifier.padding(start = 4.dp))
     }
@@ -230,9 +223,19 @@ fun MineScreen(go: (Route) -> Unit) {
     if (showLang) {
         AlertDialog(
             onDismissRequest = { showLang = false },
-            confirmButton = { TextButton(onClick = { showLang = false }) { Text("知道了") } },
-            title = { Text("语言") },
-            text = { Text("目前只提供简体中文。需要其他语言时告诉我，再加。") },
+            confirmButton = { TextButton(onClick = { showLang = false }) { Text(tr("完成", "Done")) } },
+            title = { Text(tr("语言", "Language")) },
+            text = {
+                Column {
+                    listOf("system", "zh", "en").forEach { k ->
+                        Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).press { I18n.set(ctx, k) }, verticalAlignment = Alignment.CenterVertically) {
+                            Text(I18n.label(k), color = C.Text, fontSize = 15.sp, modifier = Modifier.weight(1f))
+                            if (I18n.setting == k) Text("✓", color = C.Gold, fontSize = 16.sp)
+                        }
+                    }
+                    Text(tr("V2.0 新页面已全部双语；金价、读书、临床试验等页面在后续版本补英文。", "New V2.0 screens are bilingual; older screens will follow."), color = C.Muted, fontSize = 12.sp)
+                }
+            },
         )
     }
 }
@@ -272,20 +275,28 @@ private fun WindowDialog(ctx: Context, onDone: () -> Unit) {
 
 // ======================= 记录 =======================
 
+/** 「记录」里比上次看时新的条数（「我的」红点用）。 */
+fun newRecordCount(ctx: Context): Int {
+    val seen = Store.global(ctx).getLong("records_seen", 0L)
+    return AlertLog.flow.value.count { it.timeMs > seen }
+}
+
 @Composable
-fun RecordsScreen() {
+fun RecordsScreen(onBack: () -> Unit) {
     val ctx = LocalContext.current
     remember { AlertLog.load(ctx) }
+    DisposableEffect(Unit) { onDispose { Store.global(ctx).edit().putLong("records_seen", System.currentTimeMillis()).apply() } }
     val all by AlertLog.flow.collectAsState()
     var filter by remember { mutableStateOf("all") }
-    val fmtDay = remember { SimpleDateFormat("M月d日", Locale.CHINA) }
+    val fmtDay = remember(I18n.en) { if (I18n.en) SimpleDateFormat("MMM d", Locale.US) else SimpleDateFormat("M月d日", Locale.CHINA) }
     val fmtTime = remember { SimpleDateFormat("HH:mm", Locale.CHINA) }
     val list = all.filter { filter == "all" || it.moduleId == filter }
-    val chips = listOf("all" to "全部") + ModuleRegistry.all.filter { it.background != null }.map { it.id to it.name } + (AlertLog.SYSTEM to "系统")
+    val chips = listOf("all" to tr("全部", "All")) + ModuleRegistry.all.filter { it.background != null || it.id == "ai" }.map { it.id to moduleName(it) } + (AlertLog.SYSTEM to tr("系统", "System"))
 
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Text("记录", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = C.Text)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    Column(Modifier.fillMaxSize()) {
+    TopBar(tr("提醒记录", "Alerts"), onBack)
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             chips.forEach { (k, name) ->
                 val on = filter == k
                 Box(
@@ -294,7 +305,7 @@ fun RecordsScreen() {
                 ) { Text(name, color = if (on) (if (C.palette.isLight) Color.White else C.Bg) else C.Muted, fontSize = 13.sp) }
             }
         }
-        if (list.isEmpty()) Text("还没有记录", color = C.Muted, fontSize = 14.sp, modifier = Modifier.padding(top = 20.dp))
+        if (list.isEmpty()) Text(tr("还没有记录", "Nothing yet"), color = C.Muted, fontSize = 14.sp, modifier = Modifier.padding(top = 20.dp))
         var lastDay = ""
         list.forEach { e ->
             val day = dayLabel(e.timeMs, fmtDay)
@@ -307,10 +318,11 @@ fun RecordsScreen() {
                     Text(fmtTime.format(Date(e.timeMs)), color = C.Muted, fontSize = 12.sp)
                 }
                 Text(e.body, color = C.Text.copy(alpha = 0.85f), fontSize = 13.sp)
-                Text(if (e.moduleId == AlertLog.SYSTEM) "系统" else ModuleRegistry.byId(e.moduleId)?.name ?: e.moduleId, color = C.Muted, fontSize = 11.sp)
+                Text(if (e.moduleId == AlertLog.SYSTEM) tr("系统", "System") else ModuleRegistry.byId(e.moduleId)?.let { moduleName(it) } ?: e.moduleId, color = C.Muted, fontSize = 11.sp)
             }
         }
         Box(Modifier.height(8.dp))
+    }
     }
 }
 

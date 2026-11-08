@@ -23,6 +23,16 @@ object ApkInstaller {
 
     private fun dir(ctx: Context) = File(ctx.cacheDir, "updates").apply { mkdirs() }
 
+    /** 启动时调用：已经装上（版本号不比本机新）的安装包、下到一半的残片都删掉，不留垃圾。返回删掉的字节数。 */
+    fun cleanup(ctx: Context): Long {
+        var freed = 0L
+        File(ctx.cacheDir, "updates").listFiles()?.forEach { f ->
+            val code = Regex("update-(\\d+)").find(f.name)?.groupValues?.get(1)?.toIntOrNull()
+            if (code == null || code <= com.eric.toolbox.BuildConfig.VERSION_CODE || f.name.contains("-part")) { freed += f.length(); f.delete() }
+        }
+        return freed
+    }
+
     /** 下载到缓存目录，onProgress(0..100，未知总大小时为 -1)。返回下载好的文件。 */
     suspend fun download(ctx: Context, url: String, versionCode: Int, onProgress: (Int) -> Unit): File = withContext(Dispatchers.IO) {
         dir(ctx).listFiles()?.forEach { it.delete() } // 清掉以前的安装包

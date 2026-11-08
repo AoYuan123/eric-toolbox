@@ -9,6 +9,8 @@ import com.eric.toolbox.core.WatchdogWorker
 class App : Application() {
     override fun onCreate() {
         super.onCreate()
+        com.eric.toolbox.ui.I18n.init(this)
+        Thread { runCatching { com.eric.toolbox.core.ApkInstaller.cleanup(this) } }.start()
         Notifier.createChannels(this)
         AlertLog.load(this)
         WatchdogWorker.schedule(this)

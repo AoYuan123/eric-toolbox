@@ -36,6 +36,16 @@ object Dict {
     private fun row(d: SQLiteDatabase, w: String): Array<String>? =
         d.rawQuery("select o,p,t,g from d where w=?", arrayOf(w)).use { c -> if (c.moveToFirst()) Array(4) { c.getString(it) ?: "" } else null }
 
+    /** 某个考试标签下的全部词（cet4 / cet6 / ky / ielts / toefl / gre…），按词典顺序。11-08 实测：cet4 3846、cet6 5406、ielts 5038、toefl 6970、gre 7504。 */
+    fun wordsByTag(ctx: Context, tag: String): List<Entry> {
+        require(tag.matches(Regex("[a-z0-9]+")))
+        val out = ArrayList<Entry>()
+        open(ctx).rawQuery("select o,p,t,g from d where (' '||g||' ') like ? order by w", arrayOf("% $tag %")).use { c ->
+            while (c.moveToNext()) out += Entry(c.getString(0) ?: "", c.getString(1) ?: "", c.getString(2) ?: "", null, c.getString(3) ?: "")
+        }
+        return out
+    }
+
     private fun lemma(d: SQLiteDatabase, w: String): String? =
         d.rawQuery("select w from x where f=?", arrayOf(w)).use { c -> if (c.moveToFirst()) c.getString(0) else null }
 

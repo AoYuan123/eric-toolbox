@@ -25,8 +25,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ReceiptLong
-import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.outlined.Home
+import androidx.compose.material.icons.outlined.Person
+import androidx.compose.material.icons.outlined.Translate
+import androidx.compose.foundation.layout.height
+import com.eric.toolbox.ui.press
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -69,9 +72,11 @@ sealed interface Route {
     data object Arrange : Route
     data object Backup : Route
     data object Mail : Route
+    data object English : Route
+    data object Storage : Route
 }
 
-private val TABS = setOf<Route>(Route.Home, Route.Records, Route.Mine)
+private val TABS = setOf<Route>(Route.Home, Route.English, Route.Mine)
 
 class MainActivity : ComponentActivity() {
     private val stack = mutableStateListOf<Route>(Route.Home)
@@ -107,7 +112,7 @@ class MainActivity : ComponentActivity() {
                     Box(Modifier.weight(1f)) {
                         when (current) {
                             Route.Home -> HomeScreen(go)
-                            Route.Records -> RecordsScreen()
+                            Route.Records -> RecordsScreen(back)
                             Route.Mine -> MineScreen(go)
                             is Route.Module -> {
                                 val m = ModuleRegistry.byId(current.id)
@@ -117,6 +122,8 @@ class MainActivity : ComponentActivity() {
                             Route.Arrange -> ArrangeScreen(back)
                             Route.Backup -> BackupScreen(back)
                             Route.Mail -> MailScreen(back)
+                            Route.English -> com.eric.toolbox.modules.english.EnglishRoot(onBack = back, isTab = true)
+                            Route.Storage -> com.eric.toolbox.ui.StorageScreen(back)
                         }
                     }
                     if (current in TABS) BottomBar(current, go)
@@ -170,23 +177,34 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 private fun BottomBar(current: Route, go: (Route) -> Unit) {
-    Column(Modifier.fillMaxWidth().background(C.Surface)) {
-        HorizontalDivider(color = C.Line)
-        Row(Modifier.fillMaxWidth().padding(top = 4.dp, bottom = 4.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
-            TabItem("首页", Icons.Filled.Home, current == Route.Home, Modifier.weight(1f)) { go(Route.Home) }
-            TabItem("记录", Icons.AutoMirrored.Filled.ReceiptLong, current == Route.Records, Modifier.weight(1f)) { go(Route.Records) }
-            val ctx = LocalContext.current
-            UpdateBadge.tick
-            TabItem("我的", Icons.Filled.Person, current == Route.Mine, Modifier.weight(1f), dot = UpdateBadge.has(ctx)) { go(Route.Mine) }
+    val ctx = LocalContext.current
+    UpdateBadge.tick
+    val alertsNew = com.eric.toolbox.ui.newRecordCount(ctx) > 0
+    Row(Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, top = 6.dp, bottom = 10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        Row(Modifier.weight(1f).height(60.dp).background(C.Surface, RoundedCornerShape(30.dp)), verticalAlignment = Alignment.CenterVertically) {
+            TabItem(com.eric.toolbox.ui.tr("首页", "Home"), Icons.Outlined.Home, current == Route.Home, Modifier.weight(1f)) { go(Route.Home) }
+            TabItem(com.eric.toolbox.ui.tr("学英语", "English"), Icons.Outlined.Translate, current == Route.English, Modifier.weight(1f)) { go(Route.English) }
+            TabItem(com.eric.toolbox.ui.tr("我的", "Me"), Icons.Outlined.Person, current == Route.Mine, Modifier.weight(1f), dot = UpdateBadge.has(ctx) || alertsNew) { go(Route.Mine) }
+        }
+        // 对讲机式 AI 键：点一下进 AI 管家，按住直接开始说话
+        Box(
+            Modifier.size(62.dp).background(C.Gold, CircleShape).press(
+                onLongPress = { com.eric.toolbox.modules.ai.AiAgent.voiceOnOpen = true; go(Route.Module("ai")) },
+            ) { go(Route.Module("ai")) },
+            contentAlignment = Alignment.Center,
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                repeat(3) { Box(Modifier.size(22.dp, 2.dp).background(Color.Black.copy(alpha = 0.32f), RoundedCornerShape(1.dp))) }
+            }
         }
     }
 }
 
 @Composable
 private fun TabItem(label: String, icon: ImageVector, active: Boolean, modifier: Modifier, dot: Boolean = false, onClick: () -> Unit) {
-    val color = if (active) C.Gold else C.Muted
+    val color = if (active) C.Text else C.Muted
     Column(
-        modifier.heightIn(min = 52.dp).clickable(onClick = onClick),
+        modifier.heightIn(min = 52.dp).press(onClick = onClick),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
@@ -194,6 +212,6 @@ private fun TabItem(label: String, icon: ImageVector, active: Boolean, modifier:
             Icon(icon, null, tint = color)
             if (dot) Box(Modifier.align(Alignment.TopEnd).offset(x = 3.dp, y = (-2).dp).size(9.dp).background(Color(0xFFE5484D), CircleShape))
         }
-        Text(label, color = color, fontSize = 12.sp)
+        Text(label, color = color, fontSize = 11.sp, fontWeight = if (active) androidx.compose.ui.text.font.FontWeight.SemiBold else androidx.compose.ui.text.font.FontWeight.Normal)
     }
 }

@@ -16,7 +16,7 @@ android {
         minSdk = 26
         targetSdk = 35
         versionCode = ciRun
-        versionName = "1.0.$ciRun"
+        versionName = "2.0.$ciRun"
         buildConfigField("String", "UPDATE_REPO", "\"AoYuan123/eric-toolbox\"")
         buildConfigField("String", "GITEE_REPO", "\"aos-promise/eric-toolbox-release\"")
     }

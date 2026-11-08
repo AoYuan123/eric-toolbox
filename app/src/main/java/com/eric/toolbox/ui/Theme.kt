@@ -55,19 +55,17 @@ data class Palette(
 )
 
 object Palettes {
+    /** V2「精密工具」深色：暖石墨底 + 骨白字 + 信号橙（gold 字段沿用为强调色，老页面自动跟着换）。 */
     val Dark = Palette(
-        "dark", "曜石黑", Color(0xFF14161A), Color(0xFF1E2127), Color(0xFF2C3038), Color(0xFFF2F3F5), Color(0xFFA9AFBA),
-        Color(0xFFE8BE5A), Color(0xFF2A2418), Color(0xFF7FD9A4), Color(0xFF1F2A22), Color(0xFFFF8A80), Color(0xFF3A1E1E), false,
+        "dark", "深色", Color(0xFF121110), Color(0xFF1B1A18), Color(0xFF2C2A27), Color(0xFFEDE8DF), Color(0xFF8C867C),
+        Color(0xFFFF5A1F), Color(0xFF2E1C13), Color(0xFF7FD9A4), Color(0xFF1C2620), Color(0xFFFF8A80), Color(0xFF3A1E1E), false,
     )
+    /** V2 浅色：骨白纸面 + 石墨字 + 同一个信号橙。 */
     val Ivory = Palette(
-        "ivory", "象牙白", Color(0xFFF6F3EC), Color(0xFFFFFFFF), Color(0xFFE6E0D4), Color(0xFF1E1D1A), Color(0xFF6B675E),
-        Color(0xFF9A6B12), Color(0xFFF3E7C9), Color(0xFF1E7A48), Color(0xFFE1F2E7), Color(0xFFC0392B), Color(0xFFFBE3E0), true,
+        "ivory", "浅色", Color(0xFFE9E5DD), Color(0xFFF5F2EC), Color(0xFFD6D0C6), Color(0xFF1A1917), Color(0xFF77716A),
+        Color(0xFFE8501A), Color(0xFFF6DCCD), Color(0xFF1E7A48), Color(0xFFDCEFE2), Color(0xFFC0392B), Color(0xFFFBE3E0), true,
     )
-    val Green = Palette(
-        "green", "墨绿", Color(0xFF101C18), Color(0xFF182A24), Color(0xFF26403A), Color(0xFFEFF3F1), Color(0xFFA3B5AE),
-        Color(0xFFD9B45A), Color(0xFF2B2A1A), Color(0xFF86DDB0), Color(0xFF1C3328), Color(0xFFFF8A80), Color(0xFF3A1E1E), false,
-    )
-    val all = listOf(Dark, Ivory, Green)
+    val all = listOf(Dark, Ivory)
 }
 
 /**
@@ -106,7 +104,6 @@ object ThemeManager {
         val night = (ctx.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
         C.palette = when (k) {
             "ivory" -> Palettes.Ivory
-            "green" -> Palettes.Green
             "system" -> if (night) Palettes.Dark else Palettes.Ivory
             else -> Palettes.Dark
         }
