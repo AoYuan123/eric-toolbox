@@ -26,8 +26,19 @@ object Http {
         timeoutMs: Int = 8000,
     ): String = request(url, headers, charset, timeoutMs, form)
 
+    /** JSON POST（AI 接口用）。非 2xx 时把服务器返回的错误信息带进异常，方便提示“余额不足”“密钥错误”等。 */
+    suspend fun postJson(
+        url: String,
+        json: String,
+        headers: Map<String, String> = emptyMap(),
+        timeoutMs: Int = 60_000,
+    ): String = request(url, headers, Charsets.UTF_8, timeoutMs, json, "application/json")
+
+    class HttpError(val code: Int, val body: String) : java.io.IOException("HTTP $code")
+
     private suspend fun request(
         url: String, headers: Map<String, String>, charset: Charset, timeoutMs: Int, form: String?,
+        contentType: String = "application/x-www-form-urlencoded; charset=UTF-8",
     ): String = withContext(Dispatchers.IO) {
         require(url.startsWith("https://")) { "只允许 https 请求" }
         val conn = URL(url).openConnection() as HttpURLConnection
@@ -40,11 +51,14 @@ object Http {
             if (form != null) {
                 conn.requestMethod = "POST"
                 conn.doOutput = true
-                conn.setRequestProperty("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
+                conn.setRequestProperty("Content-Type", contentType)
                 conn.outputStream.use { it.write(form.toByteArray(Charsets.UTF_8)) }
             }
             val code = conn.responseCode
-            if (code !in 200..299) throw java.io.IOException("HTTP $code")
+            if (code !in 200..299) {
+                val err = runCatching { conn.errorStream?.use { String(it.readBytes().take(4000).toByteArray(), Charsets.UTF_8) } }.getOrNull() ?: ""
+                throw HttpError(code, err)
+            }
             val bytes = conn.inputStream.use { input ->
                 val buf = java.io.ByteArrayOutputStream()
                 val chunk = ByteArray(8192)

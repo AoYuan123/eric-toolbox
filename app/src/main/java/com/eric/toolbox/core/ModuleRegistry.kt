@@ -1,6 +1,7 @@
 package com.eric.toolbox.core
 
 import android.content.Context
+import com.eric.toolbox.modules.ai.AiModule
 import com.eric.toolbox.modules.datecalc.DateCalcModule
 import com.eric.toolbox.modules.gold.GoldModule
 import com.eric.toolbox.modules.pan.PanModule
@@ -23,6 +24,7 @@ object ModuleRegistry {
         PanModule,
         VodModule,
         ZlibModule,
+        AiModule, // 首页顶部单独一条入口，不出现在模块格子里
         // 以后的新模块加在这里
     )
 

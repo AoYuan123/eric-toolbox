@@ -61,8 +61,21 @@ fun HomeScreen(go: (Route) -> Unit) {
 
         HealthBar(runningCount, beat, expectNext, onFix = { MonitorService.sync(ctx); go(Route.KeepAlive) })
 
+        Row(
+            Modifier.fillMaxWidth().heightIn(min = 56.dp).background(C.GoldBg, RoundedCornerShape(16.dp))
+                .clickable { go(Route.Module("ai")) }.padding(horizontal = 16.dp),
+            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Text("✦", color = C.Gold, fontSize = 20.sp)
+            Column(Modifier.weight(1f)) {
+                Text("AI 管家", color = C.Gold, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                Text("问我，或让我帮你改设置 · 按住🎙说话", color = C.Muted, fontSize = 12.sp)
+            }
+            Text("›", color = C.Gold, fontSize = 20.sp)
+        }
+
         for (cat in Category.entries) {
-            val list = modules.filter { it.category == cat }
+            val list = modules.filter { it.category == cat && it.id != "ai" }
             SectionLabel(cat.title)
             if (list.isEmpty()) {
                 EmptySlot(if (cat == Category.MONITOR) "暂无监控模块" else "以后添加的工具会出现在这里")
