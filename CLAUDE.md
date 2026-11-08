@@ -155,6 +155,17 @@ app/src/test/.../GoldLogicTest.kt、DateLogicTest.kt、TrialLogicTest.kt   单�
 - 语音：系统 SpeechRecognizer，Manifest 已加 RECORD_AUDIO 和 `<queries>` RecognitionService。小米 17 Pro Max 有没有识别服务未知——App 第一次按🎙时检测并存 mod_ai.asr_available，设置页显示结果；没有的话备选 sherpa-onnx 离线识别（模型大小待核实）。
 - 不开放给 AI 的：删书、删关注、密钥、网盘/影视/zlib 模块。新增工具：在 AiTools.all 加一项，改东西的一定走 plan + 快照键。
 
+### V2.0（11-08，版本号改为 2.0.<run#>；首个 v2.0.50）
+- 设计语言「精密工具」：`ui/Design.kt`（DotMatrix 自绘 5×7 点阵数字、Tile、Caption、Meter、`Modifier.press` 按压缩放+触感、NumStyle 等宽数字）。
+  只用一个强调色 C.Gold（深色 #FF5A1F 信号橙 / 浅色 #E8501A）；主题只剩 dark（深色）/ ivory（浅色）/ system。不用渐变、发光、emoji、假英文大写标签——用户明确说不要“AI 味”。
+  容器下不了字体（GitHub raw / npm 都被拦），所以点阵是 Canvas 自绘，等宽用系统 Monospace。
+- 双语：`ui/I18n.kt`，界面文字写 `tr("中文","English")`，「我的 › 语言」跟随系统/简体中文/English，存 global.lang。V2 新页面全部双语，老模块（金价/读书/临床试验等）待补。
+- 导航：底部 首页 / 学英语（Route.English）/ 我的 + 右侧对讲机式 AI 键（点=进 AI，长按=进 AI 并自动开始听 `AiAgent.voiceOnOpen`）。记录挪到「我的 › 提醒记录」（Route.Records，records_seen 算新条数）；Route.Storage 存储空间页。
+- 首页 `ui/HomeScreen.kt` 便当盒：金价（点阵价、涨跌、距下一档、积存金走势小线）、学英语今日、正在听/最近在读、临床试验新变化（global.trials_seen）、工具格子。
+- 学英语 `modules/english/`：EnglishBooks（Claude 编写：生物医药 IP 121 条、日常口语 37 句，给专业语境释义+例句）、EnglishLogic（SM-2 类调度，可单测）、EnglishStore（files/english/cards.json，mod_english）、EnglishModule（首页/背词四种练法/查词/词书）。考试词表来自 Dict.wordsByTag。「AI 讲讲」走 `ai/AiQuick.kt`（同一个 DeepSeek 密钥和月上限）。口语、发音留到下一批。
+- 不留垃圾：App 启动时 `ApkInstaller.cleanup` 删已安装的更新包和残片。
+- 本会话没有权限编辑 GitHub Release 的说明（API 403），发版说明来自最后一次提交信息——大版本推送前把提交信息写好。
+
 **zlib 的边界（改动前务必守住）**
 - **不做内置 WebView**：站点前置 Cloudflare 人机校验（`Checking your browser`），WebView 里基本过不去；一律 `Intent.ACTION_VIEW` 交给系统浏览器，顺带走系统代理。
 - **不做账号登录**：Z-Library 下载必须登录，但账号密码只能留在浏览器里，App 一个字都不收。
