@@ -71,6 +71,7 @@ import com.eric.toolbox.ui.RowItem
 import com.eric.toolbox.ui.SectionLabel
 import com.eric.toolbox.ui.ToggleRow
 import com.eric.toolbox.ui.TopBar
+import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -398,6 +399,14 @@ private fun AiSettings(onBack: () -> Unit, openLog: () -> Unit) {
             SectionLabel("花费")
             ListCard {
                 RowItem("本月已用（估算）", "¥" + "%.3f".format(AiStore.monthCost(ctx)))
+                if (s.provider == "deepseek" && hasKey) {
+                    val scope = androidx.compose.runtime.rememberCoroutineScope()
+                    var bal by remember { mutableStateOf("点击查询") }
+                    RowItem("DeepSeek 余额", bal, sub = "官方余额接口，含赠送和充值", onClick = {
+                        bal = "查询中…"
+                        scope.launch { bal = runCatching { AiTools.balance(ctx)?.let { "${it.total} ${it.currency}（赠 ${it.granted}）" } ?: "没有返回" }.getOrElse { "查询失败：${it.message}" } }
+                    })
+                }
                 var capText by remember { mutableStateOf("%.0f".format(s.cap)) }
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("每月上限（元）", color = C.Text, fontSize = 15.sp, modifier = Modifier.weight(1f))

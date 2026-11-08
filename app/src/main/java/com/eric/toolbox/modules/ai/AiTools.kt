@@ -228,6 +228,23 @@ object AiTools {
             }
         }),
 
+        // ================= 联网 =================
+        Tool("web_search", "web", "联网搜索", "用 DeepSeek 搜索引擎搜网页，返回标题、链接和摘要。需要最新信息（新闻、公司动态、政策、价格原因等）时用。回答时在末尾列出用到的来源链接。", obj(
+            "query" to str("搜索词（可用 site: 等语法），1-128 字"), "count" to int("返回条数，默认 6，最多 10"), required = listOf("query"),
+        ), exec = { ctx, a ->
+            val q = a.optString("query").trim().take(128); require(q.isNotEmpty()) { "搜索词为空" }
+            val body = JSONObject().put("query", q).put("count", a.optInt("count", 6).coerceIn(1, 10)).toString()
+            val hits = AiLogic.parseSearch(dsPost(ctx, "https://api.deepseek.com/v1/tools/search", body))
+            if (hits.isNotEmpty()) AiStore.addCost(ctx, AiLogic.SEARCH_COST_YUAN)
+            if (hits.isEmpty()) "没有搜到结果" else JSONArray().apply { hits.forEachIndexed { i, h -> put(JSONObject().put("n", i + 1).put("标题", h.title).put("链接", h.url).put("摘要", h.snippet)) } }.toString()
+        }),
+        Tool("web_fetch", "web", "打开网页", "打开一个网页，读出正文（Markdown）。用于细看 web_search 找到的某条结果。", obj("url" to str("网页地址 http(s)"), required = listOf("url")), exec = { ctx, a ->
+            val u = a.optString("url").trim(); require(u.startsWith("http")) { "网址不对" }
+            val o = JSONObject(dsPost(ctx, "https://api.deepseek.com/v1/tools/fetch", JSONObject().put("url", u).toString()))
+            AiStore.addCost(ctx, AiLogic.SEARCH_COST_YUAN)
+            "标题：${o.optString("title")}\n${o.optString("content").take(6000)}"
+        }),
+
         // ================= 全局 =================
         Tool("app_status", "global", "查看 App 状态", "百宝箱版本、主题、首页模块顺序、各模块后台是否开启。", obj(), exec = { ctx, _ ->
             JSONObject().put("版本", BuildConfig.VERSION_NAME).put("主题", themeName(ThemeManager.key(ctx)))
@@ -273,6 +290,21 @@ object AiTools {
             }
         }),
     )
+
+    private suspend fun dsPost(ctx: Context, url: String, body: String): String {
+        val st = AiStore.settings(ctx)
+        val key = AiStore.key(ctx, "deepseek")
+        require(key.isNotBlank()) { "联网搜索要用 DeepSeek 的密钥（AI 管家 › 设置里选 DeepSeek 并保存密钥）" }
+        require(AiStore.monthCost(ctx) < st.cap) { "本月 AI 花费已到上限" }
+        return try { com.eric.toolbox.core.Http.postJson(url, body, mapOf("Authorization" to "Bearer $key"), timeoutMs = 30_000) }
+        catch (e: com.eric.toolbox.core.Http.HttpError) { if (e.code == 404) throw IllegalStateException("这个网页读不出来") else throw IllegalStateException(AiLogic.explainError(e.code, e.body)) }
+    }
+
+    /** DeepSeek 余额（官方 GET /user/balance）。 */
+    suspend fun balance(ctx: Context): AiLogic.Balance? {
+        val key = AiStore.key(ctx, "deepseek"); if (key.isBlank()) return null
+        return AiLogic.parseBalance(com.eric.toolbox.core.Http.get("https://api.deepseek.com/user/balance", mapOf("Authorization" to "Bearer $key"), timeoutMs = 15_000))
+    }
 
     private fun onOff(b: Boolean) = if (b) "开" else "关"
     private fun themeName(k: String) = when (k) { "ivory" -> "浅色"; "system" -> "跟随系统"; else -> "深色" }

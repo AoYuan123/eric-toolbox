@@ -75,6 +75,7 @@ sealed interface Route {
     data object Mail : Route
     data object English : Route
     data object Storage : Route
+    data object Health : Route
 }
 
 private val TABS = setOf<Route>(Route.Home, Route.English, Route.Mine)
@@ -125,6 +126,7 @@ class MainActivity : ComponentActivity() {
                             Route.Mail -> MailScreen(back)
                             Route.English -> com.eric.toolbox.modules.english.EnglishRoot(onBack = back, isTab = true)
                             Route.Storage -> com.eric.toolbox.ui.StorageScreen(back)
+                            Route.Health -> com.eric.toolbox.ui.HealthScreen(back)
                         }
                     }
                     if (current in TABS) BottomBar(current, go)

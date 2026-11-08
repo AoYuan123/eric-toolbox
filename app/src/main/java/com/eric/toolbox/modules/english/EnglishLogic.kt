@@ -106,4 +106,31 @@ object EnglishLogic {
     }
 
     fun shortZh(s: String, max: Int = 26): String { val a = s.substringBefore('（').substringBefore('；').trim(); return if (a.length > max) a.take(max) + "…" else a }
+
+    // ---------------- 口语对练 / 发音 ----------------
+
+    data class Turn(val reply: String, val better: String, val why: String)
+
+    /** 解析 AI 每轮返回的 JSON（{"reply","better","why"}），容忍 ```json 包裹；解析不了就整段当回复。 */
+    fun parseTurn(raw: String): Turn {
+        val t = raw.trim().removePrefix("```json").removePrefix("```").removeSuffix("```").trim()
+        val start = t.indexOf('{'); val end = t.lastIndexOf('}')
+        if (start >= 0 && end > start) runCatching {
+            val o = JSONObject(t.substring(start, end + 1))
+            val reply = o.optString("reply").trim()
+            if (reply.isNotEmpty()) return Turn(reply, o.optString("better").trim(), o.optString("why").trim())
+        }
+        return Turn(t, "", "")
+    }
+
+    /** 跟读识别检查：目标句的每个词是否在识别结果里出现（忽略大小写和标点）。 */
+    fun wordCheck(target: String, heard: String): List<Pair<String, Boolean>> {
+        fun norm(w: String) = w.lowercase().trim { !it.isLetterOrDigit() }
+        val heardSet = heard.split(Regex("\\s+")).map(::norm).filter { it.isNotEmpty() }.toMutableList()
+        return target.split(Regex("\\s+")).filter { it.isNotBlank() }.map { w ->
+            val n = norm(w)
+            val ok = n.isEmpty() || heardSet.remove(n)
+            w to ok
+        }
+    }
 }

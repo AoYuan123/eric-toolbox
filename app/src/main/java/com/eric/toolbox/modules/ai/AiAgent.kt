@@ -53,7 +53,8 @@ object AiAgent {
 1. 涉及百宝箱里的数据（金价、试验、书架、记录、日期等），一定先调用对应功能拿到真实结果再回答，绝不编造数字。功能返回出错就如实说。
 2. 要改设置、加关注时，直接调用对应的功能；App 会弹确认卡给用户，用户确认前不要说“已改好”。
 3. 用户没开放或没有的功能，直接说做不到，并告诉他可以去哪个页面手动操作。
-4. 回答用简体中文，简短直接；价格写单位“元/克”。
+4. 需要最新外部信息时可以用 web_search（再用 web_fetch 细看），只根据搜到的内容回答，搜不到就说搜不到；用了网页就在末尾列「来源」：标题 + 链接。
+5. 回答用简体中文（用户用英文提问时用英文），简短直接；价格写单位“元/克”。
 """.trimIndent()
     }
 
@@ -66,6 +67,16 @@ object AiAgent {
         error = null
         history += AiLogic.Msg("user", t, at = System.currentTimeMillis())
         AiStore.saveChat(ctx, history)
+        val quick = AiQuickAnswer.match(t)
+        if (quick != null) {
+            busy = true
+            scope.launch {
+                val ans = try { AiQuickAnswer.answer(ctx, quick) } catch (e: Exception) { "查询出错：${e.message}" }
+                history += AiLogic.Msg("assistant", ans + "\n\n" + com.eric.toolbox.ui.tr("（本地快答，没有调用 AI，不花钱）", "(Answered locally — no AI cost)"), at = System.currentTimeMillis())
+                replied++; busy = false; AiStore.saveChat(ctx, history)
+            }
+            return
+        }
         launchRun(ctx)
     }
 

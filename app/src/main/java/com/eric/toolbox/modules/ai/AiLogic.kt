@@ -142,4 +142,30 @@ object AiLogic {
         val c = java.util.Calendar.getInstance(java.util.TimeZone.getTimeZone("Asia/Shanghai")); c.timeInMillis = ms
         return "%04d-%02d".format(c.get(java.util.Calendar.YEAR), c.get(java.util.Calendar.MONTH) + 1)
     }
+
+    // ---------------- DeepSeek 余额 / 联网搜索（官方 /user/balance、/v1/tools/search、/v1/tools/fetch） ----------------
+
+    data class Balance(val currency: String, val total: String, val granted: String, val toppedUp: String, val available: Boolean)
+
+    fun parseBalance(body: String): Balance? {
+        val o = JSONObject(body)
+        val b = o.optJSONArray("balance_infos")?.optJSONObject(0) ?: return null
+        return Balance(b.optString("currency"), b.optString("total_balance"), b.optString("granted_balance"), b.optString("topped_up_balance"), o.optBoolean("is_available", true))
+    }
+
+    data class Hit(val title: String, val url: String, val snippet: String)
+
+    /** 搜索结果：字段名按官方文档（results[].title/url/snippet，summary 给模型用），兼容 data 包一层的写法。 */
+    fun parseSearch(body: String): List<Hit> {
+        val o = JSONObject(body)
+        val arr = o.optJSONArray("results") ?: o.optJSONObject("data")?.optJSONArray("results") ?: o.optJSONArray("data") ?: return emptyList()
+        return (0 until arr.length()).mapNotNull { i ->
+            val r = arr.optJSONObject(i) ?: return@mapNotNull null
+            val url = r.optString("url").ifBlank { r.optString("link") }
+            if (url.isBlank()) return@mapNotNull null
+            Hit(r.optString("title"), url, r.optString("summary").ifBlank { r.optString("snippet") }.ifBlank { r.optString("content") }.take(600))
+        }
+    }
+
+    const val SEARCH_COST_YUAN = 0.005 // 中文价格页：5 元 / 1000 次成功请求
 }

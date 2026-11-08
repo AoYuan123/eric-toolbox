@@ -121,6 +121,7 @@ fun MineScreen(go: (Route) -> Unit) {
                 if (newRec > 0) Text(tr("$newRec 条新", "$newRec new"), color = Color.White, fontSize = 12.sp, modifier = Modifier.background(Color(0xFFE5484D), RoundedCornerShape(10.dp)).padding(horizontal = 8.dp, vertical = 1.dp))
                 Text("  ›", color = C.Muted, fontSize = 16.sp)
             }
+            RowItem(tr("体检", "Health check"), remember(tick) { if (com.eric.toolbox.core.CrashLog.all(ctx).isNotEmpty()) tr("有闪退记录", "Crash logged") else "" }, onClick = { go(Route.Health) })
             RowItem(tr("存储空间", "Storage"), remember(tick) { formatBytes(appDataBytes(ctx)) }, onClick = { go(Route.Storage) })
         }
 
@@ -341,7 +342,7 @@ private fun dayLabel(ms: Long, fmt: SimpleDateFormat): String {
 // ======================= 后台保活引导 =======================
 
 @SuppressLint("BatteryLife")
-private fun keepAliveStatus(ctx: Context): List<Boolean> {
+internal fun keepAliveStatus(ctx: Context): List<Boolean> {
     val prefs = Store.global(ctx)
     return listOf(
         Notifier.canPost(ctx),

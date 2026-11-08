@@ -22,6 +22,7 @@ object AiStore {
         "translate" to ("翻译" to "翻译文字（用百度翻译额度）"),
         "datecalc" to ("日期计算" to "算间隔、工作日、农历"),
         "global" to ("全局" to "主题、首页排序、检查更新、看记录"),
+        "web" to ("联网搜索" to "搜网页、打开网页并带来源（DeepSeek，每次约 5 厘）"),
     )
 
     data class Settings(
@@ -31,6 +32,10 @@ object AiStore {
 
     fun settings(ctx: Context): Settings {
         val p = prefs(ctx)
+        if (!p.getBoolean("web_added", false)) { // v2.1 新增「联网搜索」组：老用户已存的开关集合里补上
+            val g = p.getStringSet("groups", null)
+            p.edit().putBoolean("web_added", true).apply { if (g != null) putStringSet("groups", g + "web") }.apply()
+        }
         val prov = p.getString("provider", "deepseek")!!
         return Settings(
             prov, p.getString("model", AiLogic.provider(prov).models.firstOrNull() ?: "")!!, p.getString("custom_url", "")!!,

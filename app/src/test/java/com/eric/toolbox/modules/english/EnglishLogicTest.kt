@@ -62,4 +62,17 @@ class EnglishLogicTest {
         all.forEach { assertTrue(it.zh.isNotBlank() && it.ex.isNotBlank() && it.exZh.isNotBlank()) }
         assertTrue(EnglishBooks.ip.size >= 120)
     }
+
+    @Test
+    fun parseTurnHandlesFencesAndPlainText() {
+        val t = EnglishLogic.parseTurn("```json\n{\"reply\":\"Sounds good.\",\"better\":\"The examiner thinks claim 1 is obvious.\",\"why\":\"第三人称加 s\"}\n```")
+        assertEquals("Sounds good.", t.reply); assertEquals("第三人称加 s", t.why)
+        assertEquals("Hello there", EnglishLogic.parseTurn("Hello there").reply)
+    }
+
+    @Test
+    fun wordCheckMarksMissing() {
+        val r = EnglishLogic.wordCheck("The claimed antibody binds specifically to human CD19.", "the claimed antibody binds specially to human cd19")
+        assertEquals(listOf(true, true, true, true, false, true, true, true), r.map { it.second })
+    }
 }

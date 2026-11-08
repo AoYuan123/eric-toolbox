@@ -65,4 +65,14 @@ class AiLogicTest {
         assertTrue(AiLogic.explainError(402, """{"error":{"message":"Insufficient Balance"}}""").contains("余额不足"))
         assertTrue(AiLogic.explainError(401, "").contains("密钥"))
     }
+
+    @Test
+    fun balanceAndSearch() {
+        // 官方文档示例（/user/balance）
+        val b = AiLogic.parseBalance("""{"is_available":true,"balance_infos":[{"currency":"CNY","total_balance":"110.00","granted_balance":"10.00","topped_up_balance":"100.00"}]}""")!!
+        assertEquals("110.00", b.total); assertEquals("10.00", b.granted)
+        val h = AiLogic.parseSearch("""{"results":[{"title":"A","url":"https://a.com","snippet":"s","summary":""},{"title":"no url"}]}""")
+        assertEquals(1, h.size); assertEquals("s", h[0].snippet)
+        assertTrue(AiLogic.parseSearch("""{"results":[]}""").isEmpty())
+    }
 }

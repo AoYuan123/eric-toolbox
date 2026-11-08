@@ -90,25 +90,38 @@ object EnglishModule : ToolModule {
     override fun Screen(onBack: () -> Unit) = EnglishRoot(onBack = onBack, isTab = false)
 }
 
-private fun onAcc() = if (C.palette.isLight) Color.White else Color(0xFF121110)
+internal fun onAcc() = if (C.palette.isLight) Color.White else Color(0xFF121110)
 
-/** 英语朗读（美音 / 英音），用手机系统语音引擎。 */
-private class EnVoice(ctx: Context) {
+/** 英语朗读（美音 / 英音），用手机系统语音引擎。speak 可带读完回调（A/B 对比用）。 */
+internal class EnVoice(ctx: Context) {
     private var tts: TextToSpeech? = null
     private var ready = false
     private val app = ctx.applicationContext
-    private var pending: Pair<String, Locale>? = null
+    private val main = android.os.Handler(android.os.Looper.getMainLooper())
+    private var pending: (() -> Unit)? = null
+    private var onDone: (() -> Unit)? = null
+    private var seq = 0
     init {
-        tts = TextToSpeech(app) { st -> ready = st == TextToSpeech.SUCCESS; pending?.let { (t, l) -> speak(t, l) }; pending = null }
+        tts = TextToSpeech(app) { st ->
+            ready = st == TextToSpeech.SUCCESS
+            tts?.setOnUtteranceProgressListener(object : android.speech.tts.UtteranceProgressListener() {
+                override fun onStart(id: String) {}
+                override fun onDone(id: String) { main.post { if (id == "en$seq") { val f = onDone; onDone = null; f?.invoke() } } }
+                @Deprecated("Deprecated in Java") override fun onError(id: String) { main.post { onDone = null } }
+            })
+            pending?.invoke(); pending = null
+        }
     }
-    fun speak(text: String, loc: Locale = Locale.US, rate: Float = 1f) {
-        if (!ready) { pending = text to loc; return }
+    fun speak(text: String, loc: Locale = Locale.US, rate: Float = 1f, done: (() -> Unit)? = null) {
+        if (!ready) { pending = { speak(text, loc, rate, done) }; return }
         if (Listen.playing) Listen.pause()
         val t = tts ?: return
         if (t.setLanguage(loc) < 0) t.setLanguage(Locale.US)
         t.setSpeechRate(rate)
-        t.speak(text, TextToSpeech.QUEUE_FLUSH, null, "en")
+        seq++; onDone = done
+        t.speak(text, TextToSpeech.QUEUE_FLUSH, null, "en$seq")
     }
+    fun stop() { onDone = null; tts?.stop() }
     fun shutdown() { tts?.shutdown(); tts = null }
 }
 
@@ -123,13 +136,15 @@ fun EnglishRoot(onBack: () -> Unit, isTab: Boolean) {
             "study" -> StudyScreen(voice) { page = "home" }
             "lookup" -> LookupScreen(voice) { page = "home" }
             "books" -> BooksScreen { page = "home" }
+            "speak" -> SpeakScreen(voice) { page = "home" }
+            "pron" -> PronScreen(voice) { page = "home" }
             else -> EnHome(isTab, onBack, go = { page = it })
         }
     }
 }
 
 @Composable
-private fun Header(title: String, onBack: (() -> Unit)?, trailing: @Composable () -> Unit = {}) {
+internal fun Header(title: String, onBack: (() -> Unit)?, trailing: @Composable () -> Unit = {}) {
     Row(Modifier.fillMaxWidth().padding(start = 8.dp, end = 16.dp, top = 12.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
         if (onBack != null) Box(Modifier.size(44.dp).press(onClick = onBack), contentAlignment = Alignment.Center) { Text("‹", color = C.Muted, fontSize = 28.sp) }
         else Spacer(Modifier.width(12.dp))
@@ -139,7 +154,7 @@ private fun Header(title: String, onBack: (() -> Unit)?, trailing: @Composable (
 }
 
 @Composable
-private fun Btn(text: String, primary: Boolean = false, modifier: Modifier = Modifier, sub: String? = null, onClick: () -> Unit) {
+internal fun Btn(text: String, primary: Boolean = false, modifier: Modifier = Modifier, sub: String? = null, onClick: () -> Unit) {
     Column(
         modifier.heightIn(min = 48.dp).press(onClick = onClick).background(if (primary) C.Gold else Color.Transparent, RoundedCornerShape(14.dp))
             .border(1.dp, if (primary) C.Gold else C.Line, RoundedCornerShape(14.dp)).padding(horizontal = 12.dp, vertical = 6.dp),
@@ -188,8 +203,28 @@ private fun EnHome(isTab: Boolean, onBack: () -> Unit, go: (String) -> Unit) {
                     Stat(tr("待练", "Queue"), queue.size.toString())
                 }
                 Spacer(Modifier.height(12.dp))
-                Btn(if (queue.isEmpty()) tr("今天练完了 ✓", "All done for today ✓") else tr("开始练习", "Start"), primary = queue.isNotEmpty(), modifier = Modifier.fillMaxWidth()) {
-                    if (queue.isNotEmpty()) go("study")
+                // 今天的安排（本地规则生成，不花钱）：复习 → 新词 → 口语一场
+                val spokeToday = EnglishStore.prefs(ctx).getInt("speak_day", 0) == com.eric.toolbox.modules.english.EnglishLogic.dayNo(System.currentTimeMillis())
+                val nextScene = remember(tick) { SCENES[(SCENES.indexOfFirst { it.id == EnglishStore.prefs(ctx).getString("speak_last", "") } + 1).mod(SCENES.size)] }
+                val steps = listOf(
+                    Triple(tr("复习 $due 个到期词", "Review $due due words"), due == 0, "study"),
+                    Triple(tr("学 $newLeft 个新词", "Learn $newLeft new words"), newLeft == 0, "study"),
+                    Triple(tr("口语一场：${nextScene.zh}", "Speaking: ${nextScene.en}"), spokeToday, "speak"),
+                )
+                steps.forEach { (label, ok, _) ->
+                    Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.size(18.dp).border(1.5.dp, if (ok) C.Ok else C.Line, CircleShape).background(if (ok) C.Ok else Color.Transparent, CircleShape), contentAlignment = Alignment.Center) {
+                            if (ok) Text("✓", color = C.Bg, fontSize = 11.sp)
+                        }
+                        Spacer(Modifier.width(10.dp))
+                        Text(label, color = if (ok) C.Muted else C.Text, fontSize = 14.sp)
+                    }
+                }
+                val next = steps.firstOrNull { !it.second }
+                Spacer(Modifier.height(10.dp))
+                Btn(when { next == null -> tr("今天的安排都完成了 ✓", "All done today ✓"); next.third == "speak" -> tr("去练口语", "Start speaking"); else -> tr("开始练习", "Start") },
+                    primary = next != null, modifier = Modifier.fillMaxWidth()) {
+                    next?.let { go(if (it.third == "study" && queue.isEmpty()) "speak" else it.third) }
                 }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -197,12 +232,8 @@ private fun EnHome(isTab: Boolean, onBack: () -> Unit, go: (String) -> Unit) {
                 Entry(Icons.Outlined.Style, tr("词书", "Word books"), tr("工作 · 口语 · 生词", "Work · Speaking · Mine"), Modifier.weight(1f)) { go("books") }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Entry(Icons.Outlined.Mic, tr("练口语", "Speaking"), tr("下一版：AI 情景对练", "Next: AI role-play"), Modifier.weight(1f), dim = true) {
-                    Toast.makeText(ctx, tr("口语对练在下一版加入", "Coming in the next version"), Toast.LENGTH_SHORT).show()
-                }
-                Entry(Icons.AutoMirrored.Outlined.MenuBook, tr("学发音", "Pronunciation"), tr("下一版：跟读对比", "Next: shadowing"), Modifier.weight(1f), dim = true) {
-                    Toast.makeText(ctx, tr("发音练习在下一版加入", "Coming in the next version"), Toast.LENGTH_SHORT).show()
-                }
+                Entry(Icons.Outlined.Mic, tr("练口语", "Speaking"), tr("AI 情景对练 · 逐句纠错", "AI role-play · fixes"), Modifier.weight(1f)) { go("speak") }
+                Entry(Icons.AutoMirrored.Outlined.MenuBook, tr("学发音", "Pronunciation"), tr("跟读 A/B 对比 · 易错音", "Shadowing · A/B"), Modifier.weight(1f)) { go("pron") }
             }
             Caption(tr("正在学的词书", "Active books"), Modifier.padding(start = 4.dp, top = 6.dp))
             EnglishStore.books(ctx).forEach { b ->
@@ -395,7 +426,7 @@ private fun EnText(text: String, size: Int, voice: EnVoice, phonetic: String = "
 }
 
 @Composable
-private fun Pill(text: String, onClick: () -> Unit) {
+internal fun Pill(text: String, onClick: () -> Unit) {
     Text(text, color = C.Text, fontSize = 12.sp, modifier = Modifier.border(1.dp, C.Line, RoundedCornerShape(50)).press(onClick = onClick).padding(horizontal = 10.dp, vertical = 5.dp))
 }
 
