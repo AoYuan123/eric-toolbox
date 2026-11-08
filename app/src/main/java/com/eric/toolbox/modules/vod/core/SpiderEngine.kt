@@ -134,44 +134,50 @@ class SpiderEngine(
      * 再走普通反射。
      */
     fun spider(site: VodSite): Spider {
-        val api = classNameOf(site.api)
+        val api = site.api.trim()
+        val key = classNameOf(site.api)
         synchronized(spiders) {
-            spiders[api]?.let { return it }
-            val s = create(site, api)
-            spiders[api] = s
+            spiders[key]?.let { return it }
+            val s = create(site, api, key)
+            spiders[key] = s
             return s
         }
     }
 
-    private fun create(site: VodSite, api: String): Spider {
-        val s = viaGuard(api) ?: viaReflect(site, api)
+    private fun create(site: VodSite, api: String, key: String): Spider {
+        // TVBox 约定：api 写 csp_Xxx，真正的类名是 Xxx（csp = catvod spider）。
+        // 不剥前缀就会拿 csp_DouDouGuard 去拼全名，直接 ClassNotFoundException。
+        // 壳的 getSpider 两种口径都存在，所以剥过的先试，原名兜底。
+        val s = viaGuard(key) ?: viaGuard(api) ?: viaReflect(site, key, api)
         // 插件站点几乎都在 init 里读 ext（接口地址、cookie、token 之类）。
         // 这条路以前只给反射路径调了，加固壳拿到的实例是「没初始化」的，
         // 搜索会直接返回空——真机上表现为「引擎就绪但一条都搜不到」。
         runCatching { s.init(ctx, site.ext) }
-            .onFailure { SpiderDebug.log("init($api) 抛异常: ${rootMessage(it)}") }
+            .onFailure { SpiderDebug.log("init($key) 抛异常: ${rootMessage(it)}") }
         return s
     }
 
-    private fun viaGuard(api: String): Spider? = runCatching {
+    private fun viaGuard(name: String): Spider? = runCatching {
         val inst = initInstance
             ?: runCatching { initClass.getMethod("get").invoke(null) }.getOrNull()
             ?: return null
         val m = initClass.getMethod("getSpider", String::class.java)
-        val s = m.invoke(inst, api) as? Spider ?: return null
-        runCatching { s.siteKey = api }
-        SpiderDebug.log("getSpider($api) 成功")
+        val s = m.invoke(inst, name) as? Spider ?: return null
+        runCatching { s.siteKey = name }
+        SpiderDebug.log("getSpider($name) 成功")
         s
     }.getOrElse { e ->
-        SpiderDebug.log("getSpider($api) 失败: ${rootMessage(e)}")
+        SpiderDebug.log("getSpider($name) 失败: ${rootMessage(e)}")
         null
     }
 
-    private fun viaReflect(site: VodSite, api: String): Spider {
-        val cls = Class.forName("$SPIDER_PKG$api", true, loader)
+    private fun viaReflect(site: VodSite, key: String, api: String): Spider {
+        // 极少数包真的用 csp_ 当类名的一部分，剥过的找不到就再试原名
+        val cls = runCatching { Class.forName("$SPIDER_PKG$key", true, loader) }
+            .getOrElse { Class.forName("$SPIDER_PKG$api", true, loader) }
         val s = cls.getDeclaredConstructor().newInstance() as Spider
         runCatching { s.siteKey = api }
-        SpiderDebug.log("反射创建 $api 成功")
+        SpiderDebug.log("反射创建 ${cls.simpleName} 成功")
         return s
     }
 
@@ -323,8 +329,16 @@ class SpiderEngine(
         /** 插件壳假定宿主有这个库，见 prepareHostEnv 的注释 */
         private const val HOST_DB_NAME = "tv"
 
-        /** 少数配置写成 csp_Xxx.csp_Yyy（想指定内部类），只取第一段 */
-        fun classNameOf(api: String): String = api.trim().substringBefore('.')
+        /**
+         * 配置里的 api 是「类名指示符」，不是类名本身：
+         *   csp_DouDouGuard → 类是 DouDouGuard（csp_ 前缀是 TVBox 的约定，表示走插件）
+         *   DouDouGuard     → 原样
+         * 少数写成 csp_Xxx.csp_Yyy 想指定内部类，只取第一段。
+         */
+        fun classNameOf(api: String): String {
+            val head = api.trim().substringBefore('.')
+            return if (head.startsWith("csp_")) head.removePrefix("csp_") else head
+        }
 
         /** 反射的 InvocationTargetException 把真正的原因包了一层，挖出来 */
         fun rootMessage(e: Throwable): String {
