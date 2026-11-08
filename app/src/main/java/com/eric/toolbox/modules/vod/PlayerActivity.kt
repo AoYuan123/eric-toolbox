@@ -47,6 +47,11 @@ import com.eric.toolbox.modules.vod.core.VodHttp
 import com.eric.toolbox.modules.vod.core.VodPrefs
 import com.eric.toolbox.modules.vod.model.Episode
 import com.eric.toolbox.modules.vod.model.PlayHistory
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 import org.json.JSONArray
 import org.json.JSONObject
 import androidx.compose.runtime.Composable
@@ -78,6 +83,15 @@ class PlayerActivity : ComponentActivity() {
     private var referer = ""
     private var ua = ""
     private var pic = ""
+    /** 这一路播放属于哪个站点，云盘集要靠它把 token 换成真地址 */
+    private var siteKey = ""
+    private var playFlag = ""
+
+    /** 插件给每一集指定的请求头（Referer/UA 等），按最终地址存 */
+    private val headersByUrl = HashMap<String, Map<String, String>>()
+
+    /** 换地址是异步的（要问插件），Activity 自己管生命周期比 lifecycleScope 稳妥 */
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -146,6 +160,7 @@ class PlayerActivity : ComponentActivity() {
 
     override fun onDestroy() {
         saveProgress()
+        scope.cancel()
         exoPlayer?.release()
         exoPlayer = null
         readyPlayer = null
@@ -159,13 +174,32 @@ class PlayerActivity : ComponentActivity() {
         referer = src?.getStringExtra(EXTRA_REFERER).orEmpty()
         ua = src?.getStringExtra(EXTRA_UA).orEmpty()
         pic = src?.getStringExtra(EXTRA_PIC).orEmpty()
+        siteKey = src?.getStringExtra(EXTRA_SITE_KEY).orEmpty()
+        playFlag = src?.getStringExtra(EXTRA_PLAY_FLAG).orEmpty()
         val source = src?.getStringExtra(EXTRA_SOURCE).orEmpty()
         sourceLabel = source
         episodes = parseEpisodes(src?.getStringExtra(EXTRA_EPISODES).orEmpty())
         val startUrl = src?.getStringExtra(EXTRA_URL).orEmpty()
         val idx = episodes.indexOfFirst { it.url == startUrl }
         epIndex = if (idx < 0) 0 else idx
+        parseHeaders(src?.getStringExtra(EXTRA_HEADERS)).let { h ->
+            if (h.isNotEmpty()) headersByUrl[startUrl] = h
+        }
         if (episodes.isEmpty()) hint = "没有可播放的地址"
+    }
+
+    private fun parseHeaders(json: String?): Map<String, String> {
+        if (json.isNullOrBlank()) return emptyMap()
+        return runCatching {
+            val o = JSONObject(json)
+            val out = HashMap<String, String>()
+            val keys = o.keys()
+            while (keys.hasNext()) {
+                val k = keys.next()
+                out[k] = o.optString(k)
+            }
+            out
+        }.getOrDefault(emptyMap())
     }
 
     private fun parseEpisodes(json: String): List<Episode> {
@@ -184,16 +218,8 @@ class PlayerActivity : ComponentActivity() {
     // ---------------------------------------------------------------- 播放器
 
     private fun setupPlayer() {
-        val factory = DefaultHttpDataSource.Factory()
-            .setUserAgent(ua.ifBlank { VodHttp.DEFAULT_UA })
-            .setAllowCrossProtocolRedirects(true)
-            .setConnectTimeoutMs(15_000)
-            .setReadTimeoutMs(20_000)
-        if (referer.isNotBlank()) {
-            factory.setDefaultRequestProperties(mapOf("Referer" to referer))
-        }
         val p = ExoPlayer.Builder(this)
-            .setMediaSourceFactory(DefaultMediaSourceFactory(factory))
+            .setMediaSourceFactory(DefaultMediaSourceFactory(buildFactory(emptyMap())))
             .build()
         p.addListener(object : Player.Listener {
             override fun onPlaybackStateChanged(state: Int) {
@@ -203,16 +229,26 @@ class PlayerActivity : ComponentActivity() {
             override fun onPlayerError(error: PlaybackException) {
                 saveProgress()
                 val msg = VodHttp.messageOf(error)
-                hint = if (currentUrl().startsWith("http://")) {
-                    "播放失败：$msg\n这条线路是明文 http，App 的安全策略不允许加载，请换 https 线路"
-                } else {
-                    "播放失败：$msg\n可以换一条线路试试，或在设置里启用解析器"
-                }
+                hint = "播放失败：$msg\n可以换一条线路试试；云盘线路要等插件换地址，稍等再点一次"
                 barVisible = true
             }
         })
         exoPlayer = p
         readyPlayer = p
+    }
+
+    /** 每次换集都可能换一套请求头，所以工厂按集重建 */
+    private fun buildFactory(extra: Map<String, String>): DefaultHttpDataSource.Factory {
+        val factory = DefaultHttpDataSource.Factory()
+            .setUserAgent(ua.ifBlank { VodHttp.DEFAULT_UA })
+            .setAllowCrossProtocolRedirects(true)
+            .setConnectTimeoutMs(15_000)
+            .setReadTimeoutMs(20_000)
+        val props = HashMap<String, String>()
+        if (referer.isNotBlank()) props["Referer"] = referer
+        props.putAll(extra)
+        if (props.isNotEmpty()) factory.setDefaultRequestProperties(props)
+        return factory
     }
 
     private fun play(index: Int) {
@@ -222,8 +258,31 @@ class PlayerActivity : ComponentActivity() {
         hint = ""
         displayTitle = if (originalTitle == "播放") ep.name else "$originalTitle · ${ep.name}"
         barVisible = true
+        // 云盘类站点的集地址是 token，得先问插件换成真地址（或本地代理地址）。
+        // 问出来的结果写回列表，回头再点同一集就不用重复问。
+        if (ep.url.startsWith("http://") || ep.url.startsWith("https://")) {
+            startUrl(ep.url)
+            return
+        }
+        hint = "正在换取播放地址…"
+        scope.launch {
+            val r = VodModule.resolvePlayUrl(this@PlayerActivity, siteKey, playFlag, ep.url)
+            if (!r.ok) {
+                hint = r.error.ifBlank { "这个站点没有给出可播放的地址" }
+                barVisible = true
+                return@launch
+            }
+            headersByUrl[r.url] = r.headers
+            episodes = episodes.toMutableList().also { it[index] = Episode(ep.name, r.url) }
+            hint = ""
+            startUrl(r.url)
+        }
+    }
+
+    private fun startUrl(u: String) {
         val p = exoPlayer ?: return
-        p.setMediaItem(MediaItem.Builder().setUri(ep.url).setMediaId(ep.url).build())
+        p.setMediaSourceFactory(DefaultMediaSourceFactory(buildFactory(headersByUrl[u].orEmpty())))
+        p.setMediaItem(MediaItem.Builder().setUri(u).setMediaId(u).build())
         p.prepare()
         p.playWhenReady = true
     }
@@ -260,6 +319,9 @@ class PlayerActivity : ComponentActivity() {
         const val EXTRA_SOURCE = "vod_source"
         const val EXTRA_PIC = "vod_pic"
         const val EXTRA_EPISODES = "vod_episodes"
+        const val EXTRA_SITE_KEY = "vod_site_key"
+        const val EXTRA_PLAY_FLAG = "vod_play_flag"
+        const val EXTRA_HEADERS = "vod_headers"
 
         fun start(
             ctx: Context,
@@ -268,8 +330,11 @@ class PlayerActivity : ComponentActivity() {
             sourceName: String,
             referer: String,
             ua: String,
+            siteKey: String,
+            playFlag: String,
             episodes: List<Episode>,
             startIndex: Int,
+            startHeaders: Map<String, String> = emptyMap(),
         ) {
             if (episodes.isEmpty()) {
                 Toast.makeText(ctx, "这条线路没有可播放的地址", Toast.LENGTH_SHORT).show()
@@ -278,6 +343,8 @@ class PlayerActivity : ComponentActivity() {
             val from = startIndex.coerceIn(0, episodes.lastIndex)
             val arr = JSONArray()
             episodes.forEach { arr.put(JSONObject().put("n", it.name).put("u", it.url)) }
+            val head = JSONObject()
+            startHeaders.forEach { (k, v) -> head.put(k, v) }
             ctx.startActivity(
                 Intent(ctx, PlayerActivity::class.java).apply {
                     putExtra(EXTRA_URL, episodes[from].url)
@@ -286,6 +353,9 @@ class PlayerActivity : ComponentActivity() {
                     putExtra(EXTRA_SOURCE, sourceName)
                     putExtra(EXTRA_REFERER, referer)
                     putExtra(EXTRA_UA, ua)
+                    putExtra(EXTRA_SITE_KEY, siteKey)
+                    putExtra(EXTRA_PLAY_FLAG, playFlag)
+                    putExtra(EXTRA_HEADERS, head.toString())
                     putExtra(EXTRA_EPISODES, arr.toString())
                 },
             )

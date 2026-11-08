@@ -20,6 +20,9 @@ object SearchHub {
     /** 相关性低于这个值就不展示。放宽到 0.4 左右会明显多出大量不相关结果。 */
     const val MIN_SCORE = 0.6
 
+    /** Spider 站点每批并发数。太小会排很多轮（用户以为卡死），太大容易被源站限流 */
+    private const val SPIDER_BATCH = 12
+
     data class SearchOutcome(
         val hits: List<VodItem>,
         val errors: List<String>,
@@ -41,6 +44,8 @@ object SearchHub {
         minQualityRank: Int = 0,
         /** 是否只保留站点明确标注了清晰度的内容。见 Quality.pass 的注释 */
         requireKnownQuality: Boolean = false,
+        /** 每批站点回来就回调一次，界面可以边搜边显示，不用干等全部站点 */
+        onPartial: ((List<VodItem>, Int) -> Unit)? = null,
     ): SearchOutcome = withContext(Dispatchers.IO) {
         val min = Quality.Level.fromRank(minQualityRank)
         // Spider 站点的 api 是类名不是地址，所以 hasApi 为 false，不能拿它当过滤条件
@@ -52,25 +57,18 @@ object SearchHub {
             val httpSites = targets.filter { !it.isSpider }
             val spiderSites = targets.filter { it.isSpider }
 
-            val outcomes = ArrayList<Pair<VodSite, SiteClient.PageResult?>>()
             val errors = ArrayList<String>()
-
-            // 直连接口：本来就是纯网络请求，全并发
-            val httpJobs = httpSites.map { site -> async { site to query(site, keyword, ua, timeoutMs) } }
-            // Spider 站点：一个插件包里几十个类同时打网络既慢又容易被源站限流，4 个一批
-            val spiderResults = spiderSites.chunked(4).flatMap { batch ->
-                batch.map { site -> async { site to query(site, keyword, ua, timeoutMs) } }.awaitAll()
-            }
-            outcomes += httpJobs.map { it.await() }
-            outcomes += spiderResults
-
-            val scored = ArrayList<Pair<VodItem, Double>>()
+            // key -> (条目, 相关度)。同名不同站只留相关度最高的那条
+            val accepted = LinkedHashMap<String, Pair<VodItem, Double>>()
+            var doneSites = 0
             var dropped = 0
             var droppedQuality = 0
-            for ((site, page) in outcomes) {
+
+            fun absorb(site: VodSite, page: SiteClient.PageResult?) {
+                doneSites++
                 if (page == null || !page.ok) {
                     errors += "「${site.name}」${page?.error?.ifBlank { "无结果" } ?: "插件不可用"}"
-                    continue
+                    return
                 }
                 for (item in page.items.take(limitPerSite)) {
                     val score = relevance(item.name, keyword)
@@ -85,16 +83,35 @@ object SearchHub {
                         droppedQuality++
                         continue
                     }
-                    scored += item to score
+                    val key = dedupKey(item)
+                    val old = accepted[key]
+                    if (old == null || old.second < score) accepted[key] = item to score
                 }
             }
-            // 同名不同站的归并留下相关性最高的那条
-            val hits = scored
-                .groupBy { dedupKey(it.first) }
-                .map { (_, list) -> list.maxBy { it.second } }
-                .sortedByDescending { it.second }
-                .map { it.first }
-            SearchOutcome(hits, errors, targets.size, dropped, droppedQuality)
+
+            fun snapshot(): List<VodItem> =
+                accepted.values.sortedByDescending { it.second }.map { it.first }
+
+            fun emit() = onPartial?.invoke(snapshot(), doneSites)
+
+            // 直连接口：本来就是纯网络请求，全并发
+            val httpJobs = httpSites.map { site -> async { site to query(site, keyword, ua, timeoutMs) } }
+            httpJobs.forEach { job ->
+                val (site, page) = job.await()
+                absorb(site, page)
+            }
+            emit()
+
+            // Spider 站点：几十个类同时打网络容易被源站限流，分批但要够快——
+            // 之前一批 4 个，40 多个站点要排十几轮，用户等得以为卡死了。
+            for (batch in spiderSites.chunked(SPIDER_BATCH)) {
+                val got = batch.map { site -> async { site to query(site, keyword, ua, timeoutMs) } }.awaitAll()
+                got.forEach { (site, page) -> absorb(site, page) }
+                // 边搜边出：先到的结果先上屏
+                emit()
+            }
+
+            SearchOutcome(snapshot(), errors, targets.size, dropped, droppedQuality)
         }
     }
 

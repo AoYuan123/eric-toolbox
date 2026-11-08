@@ -32,6 +32,8 @@ class SiteClient(
         val categories: List<VodCategory> = emptyList(),
         val total: Int = 0,
         val error: String = "",
+        /** 插件返回的原文头部。排查「为什么没数据」时只有它说真话 */
+        val raw: String = "",
     ) {
         val ok: Boolean get() = error.isBlank()
     }

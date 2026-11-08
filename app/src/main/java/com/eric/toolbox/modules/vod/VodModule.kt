@@ -203,15 +203,23 @@ object VodModule : ToolModule {
         val kw = keyword.trim()
         if (kw.isBlank()) return
         val sites = _state.value.sites.ifEmpty { ConfigRepo.merged(ctx).sites }
-        bump { it.copy(loading = true, error = "", items = emptyList()) }
+        bump { it.copy(loading = true, error = "", items = emptyList(), searchedCount = 0) }
+        val minRank = VodPrefs.minQuality(ctx)
         val out = SearchHub.search(
             sites = sites,
             keyword = kw,
             ua = _state.value.ua,
             timeoutMs = _state.value.timeoutMs,
             strict = strict,
-            minQualityRank = VodPrefs.minQuality(ctx),
-            requireKnownQuality = VodPrefs.requireKnownQuality(ctx),
+            minQualityRank = minRank,
+            // 「只看标了清晰度的」只在设了画质门槛时才生效。
+            // 画质选「不限」还开这个开关，等于把所有不标画质的站点全清空——
+            // 界面上看着像"没搜到"，其实是被自己筛掉了。
+            requireKnownQuality = minRank > 0 && VodPrefs.requireKnownQuality(ctx),
+            // 边搜边出：几十个插件站点排队，等全部回来才上屏太像卡死
+            onPartial = { items, done ->
+                bump { it.copy(items = items, searchedCount = done) }
+            },
         )
         bump {
             it.copy(
@@ -232,34 +240,90 @@ object VodModule : ToolModule {
         }
     }
 
+    /** 详情结果：除了条目本身，把失败原因和插件原文一起带出来，界面上能说人话 */
+    data class DetailResult(
+        val item: VodItem,
+        val error: String = "",
+        val rawHead: String = "",
+    )
+
     /** 详情页要拿完整播放串，列表页通常是空的。 */
-    suspend fun detail(ctx: Context, item: VodItem): VodItem = withContext(Dispatchers.IO) {
-        val site = findSite(ctx, item.siteKey) ?: return@withContext item
+    suspend fun detail(ctx: Context, item: VodItem): DetailResult = withContext(Dispatchers.IO) {
+        val site = findSite(ctx, item.siteKey)
+            ?: return@withContext DetailResult(item, "找不到这个站点，可能订阅被删了")
         val result = if (site.isSpider) {
-            SpiderHub.detail(site, item.id) ?: return@withContext item
+            SpiderHub.detail(site, item.id)
+                ?: return@withContext DetailResult(
+                    item,
+                    SpiderHub.lastError.ifBlank { "插件没有加载起来" },
+                )
         } else {
             SiteClient(site, _state.value.ua, _state.value.timeoutMs).detail(item.id)
         }
+        if (!result.ok) {
+            return@withContext DetailResult(item, result.error.ifBlank { "站点没有返回数据" }, result.raw)
+        }
         val full = result.items.firstOrNull()
-        if (full != null && full.playUrl.isNotBlank()) full else item
+        if (full == null) {
+            return@withContext DetailResult(item, "站点返回的数据里没有这条片子", result.raw)
+        }
+        DetailResult(
+            item = if (full.playUrl.isNotBlank()) full else item.copy(
+                // 详情里没有播放串就把详情里的其它字段补上，至少信息是全的
+                pic = item.pic.ifBlank { full.pic },
+                content = item.content.ifBlank { full.content },
+                actor = item.actor.ifBlank { full.actor },
+                year = item.year.ifBlank { full.year },
+                area = item.area.ifBlank { full.area },
+            ),
+            error = if (full.playUrl.isBlank()) "站点给了详情，但里面没有播放地址" else "",
+            rawHead = if (full.playUrl.isBlank()) result.raw else "",
+        )
+    }
+
+    /** 换地址的结果。失败也要说清原因，别让播放器去啃一个 token */
+    data class Resolved(
+        val url: String = "",
+        val error: String = "",
+        /** 插件要求的请求头（Referer / UA 等）。不少源站少这个头就 403 */
+        val headers: Map<String, String> = emptyMap(),
+    ) {
+        val ok: Boolean get() = url.isNotBlank() && error.isBlank()
     }
 
     /**
      * 播放前把某一集换成真正能播的地址。
      *
-     * 直连站点给的就是 m3u8，原样返回；Spider 站点有时候给的是站内标识
-     * （要经过 playerContent 才变成媒体地址），所以统一问一次插件。
-     * 拿不到就退回原地址——至少不会因为这一步把能播的也弄坏。
+     * 直连站点给的就是 m3u8，原样返回；Spider 站点（尤其云盘类）给的是站内标识，
+     * 必须经过 playerContent 才变成媒体地址或本地代理地址。
      */
-    suspend fun resolvePlayUrl(ctx: Context, item: VodItem, flag: String, url: String): String =
-        withContext(Dispatchers.IO) {
-            val site = findSite(ctx, item.siteKey) ?: return@withContext url
-            if (!site.isSpider) return@withContext url
-            // 已经是媒体直链就别打扰插件：一集一问，40 集的剧集列表会慢得离谱
-            if (looksDirect(url)) return@withContext url
-            val p = SpiderHub.player(site, flag, url) ?: return@withContext url
-            p.url.ifBlank { url }
+    suspend fun resolvePlayUrl(
+        ctx: Context,
+        siteKey: String,
+        flag: String,
+        url: String,
+    ): Resolved = withContext(Dispatchers.IO) {
+        val site = findSite(ctx, siteKey) ?: return@withContext Resolved(url)
+        if (!site.isSpider) return@withContext Resolved(url)
+        // 已经是媒体直链就别打扰插件：一集一问，40 集的剧集列表会慢得离谱
+        if (looksDirect(url)) return@withContext Resolved(url)
+        val p = SpiderHub.player(site, flag, url)
+            ?: return@withContext Resolved(
+                "",
+                SpiderHub.lastError.ifBlank { "插件没有加载起来" },
+            )
+        if (p.url.isBlank()) {
+            return@withContext Resolved("", p.error.ifBlank { "插件没有给出播放地址" })
         }
+        Resolved(p.url, "", p.headers)
+    }
+
+    /**
+     * 从一份剧集列表里把「不是网址」的那些换成真地址。
+     * 列表页一次问十几集太慢，所以只换当前这一集，其余等播到再换。
+     */
+    suspend fun resolveIfNeeded(ctx: Context, siteKey: String, flag: String, url: String): Resolved =
+        resolvePlayUrl(ctx, siteKey, flag, url)
 
     private fun looksDirect(u: String): Boolean {
         if (!u.startsWith("http")) return false
@@ -268,7 +332,14 @@ object VodModule : ToolModule {
             s.contains(".mkv") || s.contains(".ts")
     }
 
-    fun playGroups(item: VodItem): List<PlayGroup> = EpisodeParser.parse(item.playFrom, item.playUrl)
+    /**
+     * 把播放串拆成线路。Spider 站点允许「不是网址」的集地址——
+     * 云盘类给的就是一串 token，播放前才换成真地址。直连站点仍然只认 http(s)。
+     */
+    fun playGroups(ctx: Context, item: VodItem): List<PlayGroup> {
+        val site = findSite(ctx, item.siteKey)
+        return EpisodeParser.parse(item.playFrom, item.playUrl, allowOpaque = site?.isSpider == true)
+    }
 
     /** 站点域名，作为 Referer 传给播放器。部分源站靠这个头放行。 */
     fun originFor(ctx: Context, siteKey: String): String {

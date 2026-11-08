@@ -24,7 +24,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 object SpiderHub {
 
     /** 插件调用的硬超时。里面是别人的代码，卡住不能连累整次搜索 */
-    private const val CALL_TIMEOUT_MS = 20_000L
+    private const val CALL_TIMEOUT_MS = 12_000L
 
     @Volatile private var appCtx: Context? = null
 
@@ -88,6 +88,8 @@ object SpiderHub {
                 val jar = SpiderJar.ensure(ctx, decl)
                 val e = SpiderEngine(ctx, jar)
                 synchronized(engines) { engines[decl.url] = e }
+                // 云盘类站点播的是 127.0.0.1:9978 的代理地址，服务要提前就位
+                SpiderProxy.ensureStarted()
                 SpiderDebug.log("插件引擎就绪: ${jar.name}")
                 e
             } catch (t: Throwable) {

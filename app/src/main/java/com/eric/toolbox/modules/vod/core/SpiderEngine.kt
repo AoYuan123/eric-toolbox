@@ -154,6 +154,10 @@ class SpiderEngine(
         // 搜索会直接返回空——真机上表现为「引擎就绪但一条都搜不到」。
         runCatching { s.init(ctx, site.ext) }
             .onFailure { SpiderDebug.log("init($key) 抛异常: ${rootMessage(it)}") }
+        // 云盘站的播放要走 127.0.0.1:9978 代理，三种写法都可能出现在 URL 的 do 参数里
+        SpiderProxy.register(site.key, s)
+        SpiderProxy.register(api, s)
+        SpiderProxy.register(key, s)
         return s
     }
 
@@ -207,15 +211,15 @@ class SpiderEngine(
 
     fun player(site: VodSite, flag: String, id: String): Player = try {
         val s = spider(site)
+        SpiderProxy.ensureStarted()
+        SpiderProxy.bindLast(s)
         val raw = s.playerContent(flag, id, emptyList())
         if (raw.isBlank()) {
             Player(error = "插件没有返回播放地址")
         } else {
             val o = JSONObject(raw)
-            val url = o.optString("url").trim()
-            val headers = o.optJSONObject("header")?.let { h ->
-                h.keys().asSequence().associateWith { k -> h.optString(k) }
-            }.orEmpty()
+            val url = rewriteLocal(o.optString("url").trim())
+            val headers = headersOf(o)
             if (url.isBlank()) {
                 // parse=1 表示要经过解析器，那种地址本身不是媒体流。
                 // 这里如实说明，不拿解析器页面去喂播放器（会一直转圈）。
@@ -223,12 +227,44 @@ class SpiderEngine(
                     if (o.optInt("parse", 0) == 1) "这条线路需要额外解析，暂不支持" else "插件没有给出播放地址"
                 })
             } else {
+                if (url.contains("127.0.0.1") || url.contains("localhost")) {
+                    SpiderDebug.log("播放走本地代理: $url")
+                }
                 Player(url, headers)
             }
         }
     } catch (e: Throwable) {
         SpiderDebug.log("播放失败: ${rootMessage(e)}")
         Player(error = rootMessage(e))
+    }
+
+    /**
+     * 插件回的头信息。写法有三种：JSONObject、JSON 字符串、字段名叫 headers。
+     * 这些头不是装饰——很多源站校验 Referer/UA，少了直接 403。
+     */
+    private fun headersOf(o: JSONObject): Map<String, String> {
+        val raw: Any = o.opt("header") ?: o.opt("headers") ?: return emptyMap()
+        val obj = if (raw is JSONObject) {
+            raw
+        } else {
+            runCatching { JSONObject(raw.toString()) }.getOrNull() ?: return emptyMap()
+        }
+        val out = HashMap<String, String>()
+        val keys = obj.keys()
+        while (keys.hasNext()) {
+            val k = keys.next()
+            out[k] = obj.optString(k)
+        }
+        return out
+    }
+
+    /**
+     * 插件的代理地址端口是写死的（多见 9978）。万一我们监听不到那个端口、
+     * 或插件用的是别的端口，统一改写到本机实际监听的端口上，避免「地址对但连不上」。
+     */
+    private fun rewriteLocal(url: String): String {
+        if (!LOCAL_HOST.containsMatchIn(url)) return url
+        return LOCAL_HOST.replace(url, "://127.0.0.1:${SpiderProxy.PORT}")
     }
 
     private fun call(site: VodSite, block: (Spider) -> String): SiteClient.PageResult = try {
@@ -261,16 +297,23 @@ class SpiderEngine(
         val root = when {
             text.startsWith("{") -> JSONObject(text)
             text.startsWith("[") -> JSONObject().put("list", JSONArray(text))
-            else -> return SiteClient.PageResult(error = "插件返回的不是 JSON")
+            else -> return SiteClient.PageResult(error = "插件返回的不是 JSON", raw = raw.take(400))
         }
         val items = ArrayList<VodItem>()
-        val arr = root.optJSONArray("list") ?: JSONArray()
+        // 详情接口常把结构放在 list 里，个别插件用 data / vod 包一层
+        val arr = root.optJSONArray("list")
+            ?: root.optJSONObject("data")?.optJSONArray("list")
+            ?: JSONArray()
         for (i in 0 until arr.length()) {
             val o = arr.optJSONObject(i) ?: continue
             val item = itemOf(o, site)
             if (item.id.isNotBlank() && item.name.isNotBlank()) items += item
         }
-        return SiteClient.PageResult(items = items, categories = categoriesOf(root))
+        return SiteClient.PageResult(
+            items = items,
+            categories = categoriesOf(root),
+            raw = raw.take(400),
+        )
     }
 
     private fun itemOf(o: JSONObject, site: VodSite): VodItem = VodItem(
@@ -328,6 +371,9 @@ class SpiderEngine(
 
         /** 插件壳假定宿主有这个库，见 prepareHostEnv 的注释 */
         private const val HOST_DB_NAME = "tv"
+
+        /** 匹配 http://127.0.0.1:9978 这类本机地址，用于改写端口 */
+        private val LOCAL_HOST = Regex("://(?:127\\.0\\.0\\.1|localhost)(?::\\d+)?")
 
         /**
          * 配置里的 api 是「类名指示符」，不是类名本身：

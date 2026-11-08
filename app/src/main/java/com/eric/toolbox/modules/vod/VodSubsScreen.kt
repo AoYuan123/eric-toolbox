@@ -222,8 +222,16 @@ fun MinePane(onOpenSubs: () -> Unit, onOpenQuickAdd: () -> Unit) {
                         "${fmtTime(h.updatedAt)} · ${h.sourceName}",
                     ) {
                         PlayerActivity.start(
-                            ctx, h.title, h.pic, h.sourceName, "", "",
-                            listOf(Episode(h.episodeName, h.url)), 0,
+                            ctx = ctx,
+                            title = h.title,
+                            pic = h.pic,
+                            sourceName = h.sourceName,
+                            referer = "",
+                            ua = "",
+                            siteKey = "",
+                            playFlag = "",
+                            episodes = listOf(Episode(h.episodeName, h.url)),
+                            startIndex = 0,
                         )
                     }
                 }

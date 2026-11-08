@@ -76,15 +76,23 @@ fun DetailScreen(item: VodItem, onBack: () -> Unit) {
     var loading by remember { mutableStateOf(item.playUrl.isBlank()) }
     var groupIndex by remember { mutableIntStateOf(0) }
     var useParse by remember { mutableStateOf(VodPrefs.useParser(ctx)) }
+    /** 详情没拿到播放串时的真实原因 + 插件原文，直接显示，别让用户猜 */
+    var detailError by remember { mutableStateOf("") }
+    var rawHead by remember { mutableStateOf("") }
     // 每条线路的实测情况：码率、分辨率、能不能连。探测是异步的，失败不影响播放
     var probes by remember { mutableStateOf<Map<Int, LineProbe.Info>>(emptyMap()) }
 
     LaunchedEffect(item.id) {
-        if (item.playUrl.isBlank()) full = VodModule.detail(ctx, item)
+        if (item.playUrl.isBlank()) {
+            val r = VodModule.detail(ctx, item)
+            full = r.item
+            detailError = r.error
+            rawHead = r.rawHead
+        }
         loading = false
     }
 
-    val groups = remember(full) { VodModule.playGroups(full) }
+    val groups = remember(full, detailError) { VodModule.playGroups(ctx, full) }
     if (groupIndex > groups.lastIndex) groupIndex = 0
 
     // 线路定了之后再探测：站点标的清晰度不可信，实测码率才是真的
@@ -97,7 +105,12 @@ fun DetailScreen(item: VodItem, onBack: () -> Unit) {
             groups.mapIndexed { i, g ->
                 async {
                     val u = g.episodes.firstOrNull()?.url.orEmpty()
-                    i to LineProbe.probe(u, ua, referer)
+                    // 云盘站这一层给的是 token，探测没意义，等播放时换成真地址再算
+                    if (!u.startsWith("http")) {
+                        i to LineProbe.Info(reachable = true, note = "云盘线路")
+                    } else {
+                        i to LineProbe.probe(u, ua, referer)
+                    }
                 }
             }.map { it.await() }
         }
@@ -111,27 +124,34 @@ fun DetailScreen(item: VodItem, onBack: () -> Unit) {
         }
         val referer = VodModule.originFor(ctx, full.siteKey)
         val ua = v.ua
+        val siteKey = full.siteKey
+        val title = full.name
+        val poster = full.pic
         scope.launch {
-            // Spider 站点这一集给的可能是站内标识，要问一次插件才变成媒体地址。
-            // 已经是 m3u8/mp4 直链的话这步会原样返回，不额外发请求。
-            val ep = episodes.getOrNull(index)
-            val resolved = if (ep == null) "" else {
-                VodModule.resolvePlayUrl(ctx, full, sourceName, ep.url)
-            }
-            val list = if (ep != null && resolved.isNotBlank() && resolved != ep.url) {
-                episodes.toMutableList().also { it[index] = Episode(ep.name, resolved) }
-            } else {
-                episodes
+            // Spider 站点这一集给的可能是站内标识，要问一次插件才变成媒体地址
+            val ep = episodes.getOrNull(index) ?: return@launch
+            val r = VodModule.resolvePlayUrl(ctx, siteKey, sourceName, ep.url)
+            if (!r.ok) {
+                Toast.makeText(
+                    ctx,
+                    r.error.ifBlank { "这个站点没有给出可播放的地址" },
+                    Toast.LENGTH_LONG,
+                ).show()
+                return@launch
             }
             PlayerActivity.start(
                 ctx = ctx,
-                title = full.name,
-                pic = full.pic,
+                title = title,
+                pic = poster,
                 sourceName = sourceName,
                 referer = referer,
                 ua = ua,
-                episodes = list,
+                siteKey = siteKey,
+                playFlag = sourceName,
+                // 当前这一集的 token 已经换成真地址，其余等播到再换
+                episodes = episodes.toMutableList().also { it[index] = Episode(ep.name, r.url) },
                 startIndex = index,
+                startHeaders = r.headers,
             )
         }
     }
@@ -183,7 +203,17 @@ fun DetailScreen(item: VodItem, onBack: () -> Unit) {
                     Text("读取播放地址", color = C.Muted, fontSize = 13.sp)
                 }
             } else if (groups.isEmpty()) {
-                EmptyHint("这个站点没有返回播放地址。\n换一个站点，或者看看其它同类资源。")
+                // 这里以前只有一句「站点没有返回播放地址」，用户只能干瞪眼。
+                // 现在把插件给的原话与原文带上，一眼能看出是真没数据还是解析不了。
+                EmptyHint(
+                    detailError.ifBlank { "这个站点没有返回播放地址。\n换一个站点，或者看看其它同类资源。" },
+                )
+                if (rawHead.isNotBlank()) {
+                    Text(
+                        "站点原文：${rawHead.take(200)}",
+                        color = C.Muted, fontSize = 10.sp, lineHeight = 14.sp,
+                    )
+                }
             } else {
                 SectionLabel("线路")
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

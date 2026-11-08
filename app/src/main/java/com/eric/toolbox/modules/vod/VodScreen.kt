@@ -1,6 +1,7 @@
 package com.eric.toolbox.modules.vod
 
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -81,6 +82,18 @@ fun VodRoot(onBack: () -> Unit) {
         // 推荐源清单在后台更新，不挡住界面。站点换域名时改远程清单就能生效，不用等新版
         launch {
             if (BuiltinSources.refreshCatalog(ctx)) VodModule.reload(ctx)
+        }
+    }
+
+    // 侧滑/返回键先关内层页面，不要一按就退出整个影视模块
+    BackHandler(enabled = quickOpen || subsOpen || detailItem != null) {
+        when {
+            quickOpen -> quickOpen = false
+            subsOpen -> {
+                subsOpen = false
+                scope.launch { VodModule.reload(ctx) }
+            }
+            else -> detailItem = null
         }
     }
 
@@ -213,9 +226,12 @@ private fun SearchPane(
     var kw by remember { mutableStateOf("") }
     var minRank by remember { mutableIntStateOf(VodPrefs.minQuality(ctx)) }
     var requireKnown by remember { mutableStateOf(VodPrefs.requireKnownQuality(ctx)) }
+    /** 结果按来源筛：空串是「全部」，否则是站点 key */
+    var srcFilter by remember { mutableStateOf("") }
 
     fun doSearch() {
         if (kw.isBlank()) return
+        srcFilter = ""
         scope.launch { VodModule.search(ctx, kw, strict) }
     }
 
@@ -271,7 +287,11 @@ private fun SearchPane(
             Column(Modifier.weight(1f)) {
                 Text("只看标了清晰度的", color = C.Text, fontSize = 14.sp)
                 Text(
-                    if (requireKnown) "未标注画质的内容会被剔除，结果少但每条都对得上" else "未标注画质的内容会保留（大多数站点不标）",
+                    when {
+                        minRank == 0 -> "画质选了「不限」时这项不生效，否则会把不标画质的结果全筛掉"
+                        requireKnown -> "未标注画质的内容会被剔除，结果少但每条都对得上"
+                        else -> "未标注画质的内容会保留（大多数站点不标）"
+                    },
                     color = C.Muted, fontSize = 12.sp,
                 )
             }
@@ -294,6 +314,25 @@ private fun SearchPane(
             if (v.droppedByQuality > 0) line += " · 过滤 ${v.droppedByQuality} 条低画质"
             Text(line, color = C.Muted, fontSize = 12.sp)
         }
+
+        // 分源展示：上面选源，下面是合集。以前只有一个混在一起的列表，
+        // 同一个片名只能看到一条，用户没法知道别的站点有没有、也没法只盯一个站。
+        val sources = v.items
+            .groupBy { it.siteKey }
+            .map { (key, list) -> Triple(key, list.first().siteName.ifBlank { key }, list.size) }
+            .sortedByDescending { it.third }
+        if (sources.size > 1) {
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                item {
+                    LineChip("全部 ${v.items.size}", srcFilter.isBlank()) { srcFilter = "" }
+                }
+                items(sources) { s ->
+                    LineChip("${s.second} ${s.third}", srcFilter == s.first) { srcFilter = s.first }
+                }
+            }
+        }
+        val shown = if (srcFilter.isBlank()) v.items else v.items.filter { it.siteKey == srcFilter }
+
         if (v.error.isNotBlank() && v.items.isEmpty()) EmptyHint(v.error)
 
         LazyVerticalGrid(
@@ -302,7 +341,7 @@ private fun SearchPane(
             horizontalArrangement = Arrangement.spacedBy(10.dp),
             modifier = Modifier.fillMaxSize(),
         ) {
-            items(v.items) { item ->
+            items(shown) { item ->
                 PosterCard(
                     title = item.name,
                     pic = item.pic,
