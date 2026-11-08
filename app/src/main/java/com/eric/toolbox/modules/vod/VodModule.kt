@@ -13,6 +13,7 @@ import androidx.compose.ui.unit.sp
 import com.eric.toolbox.core.Category
 import com.eric.toolbox.core.ToolModule
 import com.eric.toolbox.ui.C
+import com.eric.toolbox.modules.vod.core.BuiltinSources
 import com.eric.toolbox.modules.vod.core.ConfigRepo
 import com.eric.toolbox.modules.vod.core.EpisodeParser
 import com.eric.toolbox.modules.vod.core.SearchHub
@@ -78,12 +79,19 @@ object VodModule : ToolModule {
 
     /** 重新读取所有启用的订阅，合并出站点列表。不联网。 */
     suspend fun reload(ctx: Context) = withContext(Dispatchers.IO) {
+        // 第一次进来且一个订阅都没有，就把推荐源写进去——否则用户看到的是空白页，
+        // 还得自己去找一份 TVBox 配置，而市面上那些配置的点播部分基本都是 Spider。
+        BuiltinSources.ensureSeeded(ctx)
         val m = ConfigRepo.merged(ctx)
         val remembered = VodPrefs.lastSiteKey(ctx)
-        val siteKey = when {
-            remembered.isNotBlank() && m.sites.any { it.key == remembered } -> remembered
-            m.sites.isNotEmpty() -> m.sites.first().key
-            else -> ""
+        // 空串代表「全部站点」聚合。默认走聚合，站少的时候没必要先选站
+        val siteKey = if (remembered.isNotBlank() && m.sites.any { it.key == remembered }) {
+            remembered
+        } else {
+            ""
+        }
+        val ownerCfg = m.configs.firstOrNull { c ->
+            siteKey.isBlank() || c.sites.any { it.key == siteKey }
         }
         bump {
             it.copy(
@@ -92,16 +100,28 @@ object VodModule : ToolModule {
                 warnings = m.warnings,
                 staleSubIds = m.staleSubIds,
                 currentSiteKey = siteKey,
-                ua = m.configs.firstOrNull { c -> c.sites.any { s -> s.key == siteKey } }?.ua.orEmpty(),
-                timeoutMs = m.configs.firstOrNull { c -> c.sites.any { s -> s.key == siteKey } }?.timeoutMs
-                    ?: 15_000,
-                error = if (m.isEmpty) "还没有任何站点，去「我的 › 订阅」添加一份配置" else "",
+                ua = ownerCfg?.ua.orEmpty(),
+                timeoutMs = ownerCfg?.timeoutMs ?: 15_000,
+                error = if (m.isEmpty) "还没有任何站点，去「我的」页恢复推荐源" else "",
             )
         }
         if (siteKey.isNotBlank()) VodPrefs.setLastSiteKey(ctx, siteKey)
     }
 
     fun selectSite(ctx: Context, key: String) {
+        if (key.isBlank()) {
+            VodPrefs.setLastSiteKey(ctx, "")
+            bump {
+                it.copy(
+                    currentSiteKey = "",
+                    currentTid = "",
+                    categories = emptyList(),
+                    items = emptyList(),
+                    error = "",
+                )
+            }
+            return
+        }
         val m = ConfigRepo.merged(ctx)
         val cfg = m.configs.firstOrNull { c -> c.sites.any { it.key == key } }
         VodPrefs.setLastSiteKey(ctx, key)
@@ -125,6 +145,31 @@ object VodModule : ToolModule {
     }
 
     // ------------------------------------------------------------ 浏览 / 搜索
+
+    /**
+     * 首页默认视图：把所有站点的最近更新混在一起。
+     * 打开就有内容可点，不用先选站。
+     */
+    suspend fun aggregate(ctx: Context) {
+        val sites = _state.value.sites.ifEmpty { ConfigRepo.merged(ctx).sites }
+        if (sites.isEmpty()) {
+            bump { it.copy(error = "还没有可用站点，去「我的」页恢复推荐源") }
+            return
+        }
+        bump { it.copy(loading = true, error = "", currentTid = "") }
+        val list = SearchHub.latest(sites, _state.value.ua, _state.value.timeoutMs)
+        bump {
+            it.copy(
+                loading = false,
+                items = list,
+                categories = emptyList(),
+                currentSiteKey = "",
+                error = if (list.isEmpty()) {
+                    "所有站点都没返回内容。可能当前网络受限，或站点已更换地址。"
+                } else "",
+            )
+        }
+    }
 
     suspend fun browse(ctx: Context, tid: String = "", page: Int = 1) {
         val site = findSite(ctx, _state.value.currentSiteKey)

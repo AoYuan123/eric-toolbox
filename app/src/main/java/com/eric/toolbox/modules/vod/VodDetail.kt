@@ -45,6 +45,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import com.eric.toolbox.modules.vod.core.LineProbe
 import com.eric.toolbox.modules.vod.core.ParseResolver
 import com.eric.toolbox.modules.vod.core.Quality
 import com.eric.toolbox.modules.vod.core.VodPrefs
@@ -54,6 +55,8 @@ import com.eric.toolbox.modules.vod.model.VodItem
 import com.eric.toolbox.ui.C
 import com.eric.toolbox.ui.SectionLabel
 import com.eric.toolbox.ui.TopBar
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import androidx.compose.runtime.collectAsState
 
@@ -73,6 +76,8 @@ fun DetailScreen(item: VodItem, onBack: () -> Unit) {
     var loading by remember { mutableStateOf(item.playUrl.isBlank()) }
     var groupIndex by remember { mutableIntStateOf(0) }
     var useParse by remember { mutableStateOf(VodPrefs.useParser(ctx)) }
+    // 每条线路的实测情况：码率、分辨率、能不能连。探测是异步的，失败不影响播放
+    var probes by remember { mutableStateOf<Map<Int, LineProbe.Info>>(emptyMap()) }
 
     LaunchedEffect(item.id) {
         if (item.playUrl.isBlank()) full = VodModule.detail(ctx, item)
@@ -81,6 +86,23 @@ fun DetailScreen(item: VodItem, onBack: () -> Unit) {
 
     val groups = remember(full) { VodModule.playGroups(full) }
     if (groupIndex > groups.lastIndex) groupIndex = 0
+
+    // 线路定了之后再探测：站点标的清晰度不可信，实测码率才是真的
+    LaunchedEffect(groups) {
+        if (groups.isEmpty()) return@LaunchedEffect
+        probes = emptyMap()
+        val referer = VodModule.originFor(ctx, full.siteKey)
+        val ua = v.ua
+        val out = coroutineScope {
+            groups.mapIndexed { i, g ->
+                async {
+                    val u = g.episodes.firstOrNull()?.url.orEmpty()
+                    i to LineProbe.probe(u, ua, referer)
+                }
+            }.map { it.await() }
+        }
+        probes = out.toMap()
+    }
 
     fun start(episodes: List<Episode>, index: Int, sourceName: String) {
         if (episodes.isEmpty()) {
@@ -152,12 +174,23 @@ fun DetailScreen(item: VodItem, onBack: () -> Unit) {
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     // 用下标而不是 source 名判选中：站点给出的两条线路同名时会一起高亮
                     itemsIndexed(groups) { i, g ->
-                        LineChip(lineLabel(g), i == groupIndex) { groupIndex = i }
+                        LineChip(lineLabel(g, probes[i]), i == groupIndex) { groupIndex = i }
                     }
                 }
 
-                // 同一部片往往挂着好几条不同清晰度的线路，给个一键到最高画质
-                val bestIdx = remember(groups) { Quality.bestIndex(groups) }
+                // 当前线路的实测情况。站点标的「1080P」经常是 1080×608、800kbps，
+                // 这里给的是真实数字，换线之前至少知道自己换的是什么
+                probes[groupIndex]?.let { info ->
+                    Text(
+                        "实测：" + info.summary(),
+                        color = if (info.kbps in 1..999) C.Warn else C.Muted,
+                        fontSize = 12.sp,
+                    )
+                }
+
+                // 同一部片往往挂着好几条线路，给个一键到最优的那条。
+                // 优先按实测码率选：站点标的清晰度靠不住，实测才作数
+                val bestIdx = remember(groups, probes) { bestLine(groups, probes) }
                 if (bestIdx >= 0 && bestIdx != groupIndex) {
                     Row(
                         Modifier
@@ -171,7 +204,7 @@ fun DetailScreen(item: VodItem, onBack: () -> Unit) {
                         )
                         Spacer(Modifier.width(4.dp))
                         Text(
-                            "跳到最高画质：${Quality.of(groups[bestIdx]).label} · ${groups[bestIdx].source}",
+                            "换到最好的一条：${groups[bestIdx].source}",
                             color = C.Gold, fontSize = 13.sp,
                         )
                     }
@@ -222,10 +255,37 @@ fun DetailScreen(item: VodItem, onBack: () -> Unit) {
     }
 }
 
-/** 线路名带上画质，比如「蓝光4K线路 · 4K」。没标画质就原样显示。 */
-private fun lineLabel(g: PlayGroup): String {
+/** 线路名带上画质，比如「蓝光4K线路 · 4K」。探测到实测数据就一并带上。 */
+private fun lineLabel(g: PlayGroup, info: LineProbe.Info?): String {
     val q = Quality.of(g)
-    return if (q.known) "${g.source} · ${q.label}" else g.source
+    val base = if (q.known) "${g.source} · ${q.label}" else g.source
+    return when {
+        info == null -> base
+        !info.reachable -> "$base · 连不上"
+        info.hasBandwidth -> {
+            val tag = if (info.kbps >= 1000) {
+                String.format(java.util.Locale.US, "%.1fM", info.kbps / 1000.0)
+            } else {
+                "${info.kbps}k"
+            }
+            "$base · $tag"
+        }
+        else -> base
+    }
+}
+
+/**
+ * 选最好的一条线路。
+ *
+ * 有实测码率就按码率排——站点标的「4K」经常是假的，实测数字不会骗人。
+ * 全都探不到才退回原来的按清晰度标签判断。
+ */
+private fun bestLine(groups: List<PlayGroup>, probes: Map<Int, LineProbe.Info>): Int {
+    val measured = groups.indices.filter { probes[it]?.kbps ?: 0 > 0 }
+    if (measured.isNotEmpty()) {
+        return measured.maxByOrNull { probes[it]?.kbps ?: 0 } ?: -1
+    }
+    return Quality.bestIndex(groups)
 }
 
 @Composable

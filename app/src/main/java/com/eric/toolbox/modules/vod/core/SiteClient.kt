@@ -3,6 +3,7 @@ package com.eric.toolbox.modules.vod.core
 import com.eric.toolbox.modules.vod.model.VodCategory
 import com.eric.toolbox.modules.vod.model.VodItem
 import com.eric.toolbox.modules.vod.model.VodSite
+import com.eric.toolbox.modules.vod.model.VodTime
 import org.json.JSONArray
 import org.json.JSONObject
 import org.w3c.dom.Element
@@ -130,6 +131,7 @@ class SiteClient(
         content = stripHtml(firstStr(o, "vod_content", "content", "des")),
         playFrom = firstStr(o, "vod_play_from", "play_from"),
         playUrl = firstStr(o, "vod_play_url", "play_url"),
+        updatedAt = VodTime.parse(firstStr(o, "vod_time", "vod_time_add", "time", "last")),
     )
 
     // -------------------------------------------------------------- XML 分支
@@ -177,6 +179,7 @@ class SiteClient(
             content = stripHtml(tag(e, "des")),
             playFrom = from,
             playUrl = playUrl,
+            updatedAt = VodTime.parse(tag(e, "last").ifBlank { tag(e, "time") }),
         )
     }
 

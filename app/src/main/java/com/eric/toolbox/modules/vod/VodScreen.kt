@@ -45,6 +45,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.eric.toolbox.modules.vod.core.BuiltinSources
 import com.eric.toolbox.modules.vod.core.Quality
 import com.eric.toolbox.modules.vod.core.VodPrefs
 import com.eric.toolbox.modules.vod.model.VodItem
@@ -76,6 +77,10 @@ fun VodRoot(onBack: () -> Unit) {
     LaunchedEffect(Unit) {
         VodModule.reload(ctx)
         if (VodModule.hasTmdb(ctx)) VodModule.trending(ctx)
+        // 推荐源清单在后台更新，不挡住界面。站点换域名时改远程清单就能生效，不用等新版
+        launch {
+            if (BuiltinSources.refreshCatalog(ctx)) VodModule.reload(ctx)
+        }
     }
 
     when {
@@ -122,17 +127,24 @@ private fun BrowsePane(
     val scope = rememberCoroutineScope()
 
     if (v.sites.isEmpty()) {
-        EmptyHint("还没有站点。\n去「我的 › 订阅」导入一份配置。")
+        EmptyHint("还没有可用站点。\n去「我的」页恢复推荐源，或自己加一个接口地址。")
         return
     }
 
-    // 选中站点后自动拉一次首页
-    LaunchedEffect(v.currentSiteKey) {
-        if (v.currentSiteKey.isNotBlank()) VodModule.browse(ctx)
+    // 首次进来（或切回「全部」）拉一次聚合；选中具体站点则拉该站首页
+    LaunchedEffect(v.currentSiteKey, v.sites.isNotEmpty()) {
+        if (v.sites.isEmpty()) return@LaunchedEffect
+        if (v.currentSiteKey.isBlank()) VodModule.aggregate(ctx) else VodModule.browse(ctx)
     }
 
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            item {
+                LineChip("全部", v.currentSiteKey.isBlank()) {
+                    VodModule.selectSite(ctx, "")
+                    scope.launch { VodModule.aggregate(ctx) }
+                }
+            }
             items(v.sites) { s ->
                 LineChip(s.name, s.key == v.currentSiteKey) {
                     VodModule.selectSite(ctx, s.key)

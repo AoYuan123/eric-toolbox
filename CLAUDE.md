@@ -86,13 +86,14 @@ app/src/test/.../GoldLogicTest.kt、DateLogicTest.kt、TrialLogicTest.kt   单�
 │   ├── core/Http.kt       独立 HTTP 封装（不共用底座 core/Http.kt）
 │   ├── engine/            6 个源 pansou/haisou/yunso/ataw/panxiaozi/movie + PanSearch 编排
 │   └── verify/            LinkVerifier 链接存活核验
-└── modules/vod/          在线影视。App 是空壳，不内置任何采集站地址，源由用户自己填订阅
-    ├── VodModule.kt       模块入口 + 订阅/画质偏好
+└── modules/vod/          在线影视。内置推荐源（远程清单可换），搜到即播，不下载不转存
+    ├── VodModule.kt       模块入口 + 订阅/画质偏好 + 聚合首页
     ├── VodSubsScreen.kt   订阅管理：远程 URL、本地粘贴、导入文件；支持「图种」和 `//` 注释
-    ├── VodScreen.kt       搜索 + 画质门槛（不限/720P+/1080P+/4K）
-    ├── VodDetail.kt       详情、线路（带画质标签）、「跳到最高画质」
+    ├── VodScreen.kt       聚合首页（全部站点混排）+ 搜索 + 画质门槛（不限/720P+/1080P+/4K）
+    ├── VodDetail.kt       详情、线路（带实测码率）、「换到最好的一条」
     ├── PlayerActivity.kt  全屏横屏播放，Media3 ExoPlayer
-    └── core/              ConfigParser（TVBox 配置解析）/ SiteClient / EpisodeParser / SearchHub / Quality / TmdbClient
+    └── core/              ConfigParser / SiteClient / EpisodeParser / SearchHub / Quality / TmdbClient
+                           BuiltinSources（推荐源播种 + 远程清单）/ LineProbe（实测码率与字幕轨）
 └── modules/zlib/         Z-Library 入口。只拼搜索 URL 交给系统浏览器，App 内不加载站点
     ├── ZlibModule.kt      模块入口 + 站点列表 / 当前站点 / 搜索模板 / 最近搜过 / 探测记录
     ├── ZlibScreen.kt      搜索框 + 站点 chip + 最近搜过 + 快捷入口
@@ -197,6 +198,14 @@ app/src/test/.../GoldLogicTest.kt、DateLogicTest.kt、TrialLogicTest.kt   单�
 - **ataw 的 30 秒是单次 HTTP 请求超时，不是引擎超时**：它串行抓 quark/ali/sharepan 三个搜索页，各请求一次，桌面实测三遍合计 26~27 秒、单次 8~9 秒。`PanSearch` 没有 `withTimeout`。别拿「26 秒逼近 30 秒」当理由去放宽超时。
 - pansou 默认 `src=all`（含 TG 频道源，噪音偏多）；skill 版默认 `plugin`。这个参数目前**没有 UI**，只能改 `SearchOptions` 的默认值。
 
+**vod 的推荐源（2026-11-08 起，这是对旧策略的推翻）**
+- 旧策略是「App 是空壳，一个地址都不内置」。实测下来这条路走不通：市面上流传的 TVBox 配置，点播部分几乎全是 Spider，用户随手找一份进来就是「48 个站、可用 0 个」，模块等于废掉。**用户明确抱怨过它是「虚设」**。
+- 现在 `BuiltinSources` 会播种一条名为「推荐源」的本地订阅，装完即可搜、可播。三条红线没变：**只收 type=1（JSON）站、绝不收 Spider、只播不存（不下载不转存不缓存）**。
+- 地址优先从 `vod-subscription/recommended.json` 拉（jsDelivr → GitHub raw → ghproxy 依次回退，24 小时节流）。换域名改那个文件即可，**不用发新版**。
+- 用户删掉「推荐源」后不会被偷偷加回来（`seeded` 标记只播一次）；「我的」页有「恢复推荐源」手动入口。
+- 站点标的清晰度**不可信**（实测「1080P」常是 1080×608、800kbps）。`LineProbe` 在详情页实测每条线路的真实码率/分辨率/字幕轨，异步、失败不影响播放。
+- 采集站片源**普遍没有独立字幕轨**（实测 5 个源 SUBTITLES 计数全 0），字幕是烧在画面里的硬字幕。想做「选字幕」只能走本地字幕文件或 OpenSubtitles，别指望片源自带。
+
 ### 新增一个模块
 1. `modules/<name>/` 下实现 `ToolModule`（纯工具只要 `Screen()`；要后台监控再给 `BackgroundTask`）。
 2. 在 `ModuleRegistry.all` 加一行。首页卡片、后台调度、运行时段、通知、备份自动复用。
@@ -236,7 +245,7 @@ app/src/test/.../GoldLogicTest.kt、DateLogicTest.kt、TrialLogicTest.kt   单�
   - ataw 详情**并发不能超过 2**，且要加 200~800ms 随机间隔，否则很快被风控（代码里已固定）。
   - pansou 天生慢（桌面经常 47s+），单独给了 45s 超时；`src=all` 含 TG 频道源，噪音多。
   - 11-02 实测：yunso 1.0s/100 条、ataw 26.0s/24 条；pansou、haisou 均处于风控冷却。
-- 影视源：**不内置任何地址**。用户自己填 TVBox/CatVod 格式订阅（远程 URL 或本地粘贴），`ConfigParser` 解析 `sites/lives/parses`，只吃 `type=0/1` 且 api 是 http(s) 的站，`type=3` 跳过。多数流传配置是全 Spider（例如饭太硬那份：48 个站全 type=3），**订阅成功不等于可看**，只有直播部分能用。
+- 影视源：**内置一组推荐源（2026-11-08 起）**，同时仍支持用户自己填 TVBox/CatVod 订阅（远程 URL 或本地粘贴）。`ConfigParser` 解析 `sites/lives/parses`，只吃 `type=0/1` 且 api 是 http(s) 的站，`type=3` 跳过。多数流传配置是全 Spider（例如饭太硬那份：48 个站全 type=3），**订阅成功不等于可看**，只有直播部分能用——这正是要内置推荐源的原因。
 
 ## 7. 国内下载更新（11-02 定为 Gitee）
 - Gitee 公开仓库 `aos-promise/eric-toolbox-release`（只放安装包）；GitHub Secret `GITEE_TOKEN`（用户自己贴的 Gitee 私人令牌）。

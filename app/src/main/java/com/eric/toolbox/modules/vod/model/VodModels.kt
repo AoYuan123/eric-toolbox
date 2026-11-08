@@ -136,7 +136,51 @@ data class VodItem(
     val playFrom: String = "",
     /** 播放地址串，与 playFrom 顺序对应 */
     val playUrl: String = "",
+    /**
+     * 站点给的更新时间，转成时间戳。解析不出来就是 0。
+     * 首页要把多个站的最新内容混在一起排，没有这个字段排不了序。
+     */
+    val updatedAt: Long = 0L,
 )
+
+/**
+ * 站点更新时间的解析。
+ *
+ * 各家写法五花八门（`2024-01-01 12:00:00`、`2024/01/01`、只有日期没有时间），
+ * 解析失败一律返回 0，排序时自然沉底，不影响其它内容展示。
+ */
+object VodTime {
+
+    private val PATTERNS = listOf(
+        "yyyy-MM-dd HH:mm:ss",
+        "yyyy-MM-dd HH:mm",
+        "yyyy-MM-dd",
+        "yyyy/MM/dd HH:mm:ss",
+        "yyyy/MM/dd",
+        "yyyy-MM-dd'T'HH:mm:ss",
+    )
+
+    fun parse(raw: String): Long {
+        val s = raw.trim()
+        if (s.length < 8) return 0L
+        // 时间戳写法：10 位或 13 位纯数字
+        if (s.all { it.isDigit() }) {
+            val n = s.toLongOrNull() ?: return 0L
+            return when (s.length) {
+                10 -> n * 1000
+                13 -> n
+                else -> 0L
+            }
+        }
+        for (p in PATTERNS) {
+            val v = runCatching {
+                java.text.SimpleDateFormat(p, java.util.Locale.CHINA).parse(s)?.time ?: 0L
+            }.getOrDefault(0L)
+            if (v > 0L) return v
+        }
+        return 0L
+    }
+}
 
 /** 单集 */
 data class Episode(

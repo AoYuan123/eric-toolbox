@@ -100,6 +100,44 @@ object SearchHub {
         if (tid.isBlank()) client.home(page) else client.category(tid, page)
     }
 
+    /**
+     * 把所有站点的「最近更新」混在一起，按更新时间倒序。
+     *
+     * 首页要的是"打开就有内容"，而不是先逼用户选站点。站点少的时候选站完全是多余的一步。
+     *
+     * 每个站点单独限时：慢站不能拖住整页。到点没回来的直接跳过，
+     * 已经拿到的照常展示——宁可少一个源，也不要转圈等 15 秒。
+     */
+    suspend fun latest(
+        sites: List<VodSite>,
+        ua: String = "",
+        timeoutMs: Int = 15_000,
+        perSite: Int = 24,
+        overallTimeoutMs: Long = 12_000,
+    ): List<VodItem> = withContext(Dispatchers.IO) {
+        val targets = sites.filter { it.supported && it.hasApi }
+        if (targets.isEmpty()) return@withContext emptyList()
+        coroutineScope {
+            val jobs = targets.map { site ->
+                async {
+                    val page = runCatching {
+                        kotlinx.coroutines.withTimeoutOrNull(overallTimeoutMs) {
+                            SiteClient(site, ua, timeoutMs).home(1)
+                        }
+                    }.getOrNull()
+                    page?.takeIf { it.ok }?.items?.take(perSite).orEmpty()
+                }
+            }
+            val all = ArrayList<VodItem>()
+            for (job in jobs) all += job.await()
+            // 同名同年的只留最新那条，否则五个站各来一份，首页全是重复
+            all.groupBy { dedupKey(it) }
+                .map { (_, list) -> list.maxByOrNull { it.updatedAt } ?: list.first() }
+                // 没有时间戳的沉底，有时间的按新到旧
+                .sortedWith(compareByDescending<VodItem> { it.updatedAt })
+        }
+    }
+
     // ------------------------------------------------------------ 相关性算法
 
     /**

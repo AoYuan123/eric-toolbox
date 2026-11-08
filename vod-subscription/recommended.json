@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "updated": "2026-11-08",
+  "note": "影视模块的推荐源清单。站点换域名时只改这个文件，不必发新版 APK。地址必须是以 http 或 https 开头的标准苹果 CMS 接口（type=1 的 JSON 输出）。",
+  "sites": [
+    {
+      "key": "lzi",
+      "name": "量子资源",
+      "api": "https://cj.lziapi.com/api.php/provide/vod/"
+    },
+    {
+      "key": "dytt",
+      "name": "电影天堂",
+      "api": "https://caiji.dyttzyapi.com/api.php/provide/vod/"
+    },
+    {
+      "key": "jszy",
+      "name": "极速资源",
+      "api": "https://jszyapi.com/api.php/provide/vod/"
+    },
+    {
+      "key": "modu",
+      "name": "魔都资源",
+      "api": "https://caiji.moduapi.cc/api.php/provide/vod/"
+    },
+    {
+      "key": "bdzy",
+      "name": "百度资源",
+      "api": "https://api.apibdzy.com/api.php/provide/vod/"
+    }
+  ]
+}

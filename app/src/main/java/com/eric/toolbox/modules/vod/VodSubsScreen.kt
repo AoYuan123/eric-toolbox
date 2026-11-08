@@ -39,6 +39,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.eric.toolbox.modules.vod.core.BuiltinSources
 import com.eric.toolbox.modules.vod.core.ConfigRepo
 import com.eric.toolbox.modules.vod.core.VodPrefs
 import com.eric.toolbox.modules.vod.model.Episode
@@ -60,12 +61,15 @@ import androidx.compose.runtime.collectAsState
 fun MinePane(onOpenSubs: () -> Unit) {
     val ctx = LocalContext.current
     val v by VodModule.state.collectAsState()
+    val scope = rememberCoroutineScope()
     val hasKey = VodPrefs.tmdbKey(ctx).isNotBlank()
 
     var tmdbInput by remember { mutableStateOf(VodPrefs.tmdbKey(ctx)) }
     var parse by remember { mutableStateOf(VodPrefs.useParser(ctx)) }
     var history by remember { mutableStateOf(VodPrefs.history(ctx)) }
     var note by remember { mutableStateOf("") }
+    // 用户可能把「推荐源」删了，给一个能加回来的入口，否则只能拷粘贴配置
+    var hasPreset by remember { mutableStateOf(BuiltinSources.hasPresetSub(ctx)) }
 
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
@@ -73,6 +77,16 @@ fun MinePane(onOpenSubs: () -> Unit) {
     ) {
         ListCard {
             RowItem("订阅管理", "", "添加 / 刷新 / 删除配置源", onOpenSubs)
+            if (!hasPreset) {
+                RowItem("恢复推荐源", "", "内置 5 个可用站点，点一下加回来") {
+                    BuiltinSources.restore(ctx)
+                    hasPreset = true
+                    scope.launch {
+                        VodModule.reload(ctx)
+                        VodModule.aggregate(ctx)
+                    }
+                }
+            }
         }
         if (v.staleSubIds.isNotEmpty()) {
             Text(
@@ -81,7 +95,7 @@ fun MinePane(onOpenSubs: () -> Unit) {
             )
         }
         Text(
-            "App 本身不含任何内容。影视数据来自你自己导入的配置，请先在两个地方都确认合法性。",
+            "App 不存储任何影视内容：不下载、不转存、不缓存，只把站点给的播放地址交给播放器。",
             color = C.Muted, fontSize = 12.sp, lineHeight = 18.sp,
             modifier = Modifier.padding(horizontal = 4.dp),
         )
