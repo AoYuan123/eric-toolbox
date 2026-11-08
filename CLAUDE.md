@@ -141,6 +141,20 @@ app/src/test/.../GoldLogicTest.kt、DateLogicTest.kt、TrialLogicTest.kt   单�
 - 翻译走 `Translator.translateText(ctx,text,from,to)`（百度，与临床试验/读书共用 APP ID、缓存和每月上限；非 en→zh 方向缓存键带 `from>to|` 前缀）。
 - 单个英文单词时查 ECDICT 并可「加生词本」（Notes.addWord，书名记作「翻译」）。历史、方向、语速存 mod_translate（进备份）。
 
+### AI 管家（11-08，用户确认预览后开发，v1.0.46）
+```
+└── modules/ai/            AI 管家（id=ai；首页顶部一条入口，不进模块格子）
+    ├── AiLogic.kt         纯逻辑：服务商表、请求拼装（DeepSeek 加 thinking.type=disabled）、返回/工具调用解析、费用估算、上下文窗口
+    ├── AiStore.kt         设置(mod_ai) / 密钥(ai_secret，不进备份) / 月花费 / 对话 files/ai/chat.json / 操作记录 log.json + 快照撤销
+    ├── AiTools.kt         AI 可调用的功能：只读直接执行；改动类返回 Plan（改动清单+快照键），用户点确认才 apply
+    ├── AiAgent.kt         对话循环（最多 6 轮工具调用），全局协程，离开页面也会完成
+    └── AiModule.kt        对话页（确认卡、撤销、按住说话、朗读回答）/ 设置页 / 操作记录
+```
+- 11-08 实测：用户电脑网络下 api.deepseek.com、dashscope.aliyuncs.com/compatible-mode/v1 都能连通（无密钥返回 401）。
+- DeepSeek 价格（官网 11-08）：v4-flash 输入 1 元（缓存命中 0.02）/ 输出 2 元每百万 tokens；v4-pro 3 / 6（命中 0.025）。官网写了“计划近期整体上调定价”，变了要改 AiLogic.deepseekPrice。
+- 语音：系统 SpeechRecognizer，Manifest 已加 RECORD_AUDIO 和 `<queries>` RecognitionService。小米 17 Pro Max 有没有识别服务未知——App 第一次按🎙时检测并存 mod_ai.asr_available，设置页显示结果；没有的话备选 sherpa-onnx 离线识别（模型大小待核实）。
+- 不开放给 AI 的：删书、删关注、密钥、网盘/影视/zlib 模块。新增工具：在 AiTools.all 加一项，改东西的一定走 plan + 快照键。
+
 **zlib 的边界（改动前务必守住）**
 - **不做内置 WebView**：站点前置 Cloudflare 人机校验（`Checking your browser`），WebView 里基本过不去；一律 `Intent.ACTION_VIEW` 交给系统浏览器，顺带走系统代理。
 - **不做账号登录**：Z-Library 下载必须登录，但账号密码只能留在浏览器里，App 一个字都不收。
