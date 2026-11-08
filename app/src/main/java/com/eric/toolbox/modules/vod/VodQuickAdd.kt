@@ -150,7 +150,7 @@ fun QuickAddScreen(onBack: () -> Unit, onChanged: () -> Unit = {}) {
                         onSaveAll = {
                             save(h.candidates.filter { it.ok && it.site.key in picked }.map { it.site })
                         },
-                        onSaveOne = { save(listOf(it)) },
+                        onSaveOne = { c -> save(listOf(c.site)) },
                     )
                 }
                 is QuickAdd.Result.Failed -> FailedCard(r)
