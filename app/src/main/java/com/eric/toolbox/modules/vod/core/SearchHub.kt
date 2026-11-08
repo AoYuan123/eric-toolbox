@@ -6,6 +6,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.withContext
 
 /**
@@ -94,21 +96,40 @@ object SearchHub {
 
             fun emit() = onPartial?.invoke(snapshot(), doneSites)
 
-            // 直连接口：本来就是纯网络请求，全并发
-            val httpJobs = httpSites.map { site -> async { site to query(site, keyword, ua, timeoutMs) } }
-            httpJobs.forEach { job ->
-                val (site, page) = job.await()
-                absorb(site, page)
-            }
-            emit()
+            // absorb 会改共享集合，emit 会刷 UI 状态，都只允许单线程同时做
+            val lock = Any()
 
-            // Spider 站点：几十个类同时打网络容易被源站限流，分批但要够快——
-            // 之前一批 4 个，40 多个站点要排十几轮，用户等得以为卡死了。
-            for (batch in spiderSites.chunked(SPIDER_BATCH)) {
-                val got = batch.map { site -> async { site to query(site, keyword, ua, timeoutMs) } }.awaitAll()
-                got.forEach { (site, page) -> absorb(site, page) }
-                // 边搜边出：先到的结果先上屏
-                emit()
+            fun finishSite(site: VodSite, page: SiteClient.PageResult?) {
+                synchronized(lock) {
+                    absorb(site, page)
+                    emit()
+                }
+            }
+
+            // 直连接口：本来就是纯网络请求，全并发，谁先回来谁先上屏。
+            // 以前要等所有 http 站点齐了才 emit 一次，最快的站也被最慢的拖住。
+            httpSites.forEach { site ->
+                launch {
+                    val page = query(site, keyword, ua, timeoutMs)
+                    finishSite(site, page)
+                }
+            }
+
+            // Spider 站点：以前按 12 个一批、整组 awaitAll 之后才进下一组——
+            // 组里有一个卡 12 秒的站点，另外 11 个干等，几十个站要排四五轮，
+            // 用户看到的就是「转圈半天」。改成信号量限流的流水线：
+            // 任何时刻最多 12 个在跑，跑完一个立刻补位，结果也是回来一条上一条。
+            val gate = Semaphore(SPIDER_BATCH)
+            spiderSites.forEach { site ->
+                launch {
+                    gate.acquire()
+                    try {
+                        val page = query(site, keyword, ua, timeoutMs)
+                        finishSite(site, page)
+                    } finally {
+                        gate.release()
+                    }
+                }
             }
 
             SearchOutcome(snapshot(), errors, targets.size, dropped, droppedQuality)

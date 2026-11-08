@@ -105,8 +105,13 @@ fun DetailScreen(item: VodItem, onBack: () -> Unit) {
             groups.mapIndexed { i, g ->
                 async {
                     val u = g.episodes.firstOrNull()?.url.orEmpty()
-                    // 云盘站这一层给的是 token，探测没意义，等播放时换成真地址再算
-                    if (!u.startsWith("http")) {
+                    // 云盘线路这层给的是 token 或分享链接网页（https://pan.quark.cn/s/x），
+                    // 测速测出来的是网页下载速度，毫无意义还误导选线——只有
+                    // 带媒体扩展名的直链才值得探测，其余等播放时换成真地址再算
+                    val s = u.lowercase()
+                    val directMedia = u.startsWith("http") &&
+                        (".m3u8" in s || ".mp4" in s || ".flv" in s || ".mkv" in s || ".ts" in s)
+                    if (!directMedia) {
                         i to LineProbe.Info(reachable = true, note = "云盘线路")
                     } else {
                         i to LineProbe.probe(u, ua, referer)

@@ -3,8 +3,10 @@ package com.eric.toolbox.modules.vod.core
 import android.content.Context
 import com.eric.toolbox.modules.vod.model.VodConfig
 import com.eric.toolbox.modules.vod.model.VodSite
+import com.github.catvod.crawler.Spider
 import com.github.catvod.crawler.SpiderDebug
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -47,6 +49,28 @@ object SpiderHub {
 
     fun attach(ctx: Context) {
         appCtx = ctx.applicationContext
+        // 播放代理按 do 参数路由不到时，到这里现查现建（见 findSpiderForDoName）
+        SpiderProxy.resolver = { name -> findSpiderForDoName(name) }
+    }
+
+    /**
+     * 云盘插件换出来的代理地址经常指向「另一个站点类」：
+     * 玩偶哥哥（csp_Wogg）给的地址是 do=quark，真正干活的是配置里的夸克站点。
+     * 那个站点的 Spider 只在搜过/播过它时才被创建，播放时往往还不存在——
+     * 这里按 key / api / 剥掉 csp_ 的类名把站点找出来，现场把实例建好交出去。
+     * 在代理线程里阻塞执行，最长也就是建一次引擎的时间。
+     */
+    private fun findSpiderForDoName(name: String): Spider? {
+        if (name.isBlank()) return null
+        val sites = synchronized(decls) { spiderSites.toList() }
+        val hit = sites.firstOrNull { s ->
+            s.key == name || s.api == name || s.api == "csp_$name" ||
+                SpiderEngine.classNameOf(s.api) == name
+        } ?: return null
+        return runCatching {
+            val engine = runBlocking { engineFor(hit) } ?: return null
+            engine.spider(hit)
+        }.getOrNull()
     }
 
     /** 每次重载订阅后调用，刷新「哪个订阅带插件」 */

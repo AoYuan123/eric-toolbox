@@ -40,7 +40,18 @@ object SpiderProxy {
 
     private var server: ServerSocket? = null
 
-    private val pool = Executors.newFixedThreadPool(6)
+    // HLS 播放时分片请求是连续不断的，固定 6 个线程会让分片在池里排队、
+    // 播放器缓冲转圈。本地代理的并发天然有限，缓存线程池足够。
+    private val pool = Executors.newCachedThreadPool()
+
+    /**
+     * 路由不到时的补建钩子，由 SpiderHub 注入。
+     * 场景：插件 A 换出来的代理地址是 do=quark，指向配置里另一个站点类，
+     * 但那个站点的 Spider 实例要「搜过/播过」才存在——现查现建，别让
+     * 请求落到错误的兜底上。
+     */
+    @Volatile
+    var resolver: ((String) -> Spider?)? = null
 
     /**
      * 兜底用：有些插件请求里不带 do 参数，或者带的是它自己才懂的名字。
@@ -123,9 +134,14 @@ object SpiderProxy {
                 return
             }
             // proxy 是 TVBox 的入口，proxyLocal 是旧版名字；基类里后者默认转前者，
-            // 但子类可能只覆盖了其中一个，所以两个都试
-            val result = runCatching { spider.proxy(params) }.getOrNull()
-                ?: runCatching { spider.proxyLocal(params) }.getOrNull()
+            // 但子类可能只覆盖了其中一个，所以两个都试。
+            // 抛异常不能吞掉——那是诊断页里唯一的线索。
+            val result: Array<*>? = runCatching { spider.proxy(params) }
+                .onFailure { SpiderDebug.log("播放代理 ${spider.javaClass.simpleName}.proxy 抛异常: ${SpiderEngine.rootMessage(it)}") }
+                .getOrNull()
+                ?: runCatching { spider.proxyLocal(params) }
+                    .onFailure { SpiderDebug.log("播放代理 ${spider.javaClass.simpleName}.proxyLocal 抛异常: ${SpiderEngine.rootMessage(it)}") }
+                    .getOrNull()
             if (result == null) {
                 SpiderDebug.log("播放代理: ${spider.javaClass.simpleName}.proxy 返回空 do=${params["do"].orEmpty()}")
                 respondText(sock, 502, "插件没有处理这个代理请求")
@@ -143,6 +159,8 @@ object SpiderProxy {
         if (name.isNotBlank()) {
             targets[name]?.let { return it }
             targets["csp_$name"]?.let { return it }
+            // 已登记的键没对上：这个站点的实例可能还没被创建过，让 SpiderHub 现查现建
+            resolver?.invoke(name)?.let { return it }
         }
         return lastSpider
     }

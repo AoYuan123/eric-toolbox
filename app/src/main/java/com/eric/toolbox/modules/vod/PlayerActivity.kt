@@ -52,6 +52,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import okhttp3.OkHttpClient
+import okhttp3.Request
 import org.json.JSONArray
 import org.json.JSONObject
 import androidx.compose.runtime.Composable
@@ -95,6 +98,9 @@ class PlayerActivity : ComponentActivity() {
 
     /** 换地址是异步的（要问插件），Activity 自己管生命周期比 lifecycleScope 稳妥 */
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+
+    /** 嗅探结果按地址缓存：一集只探一次，重试/换集不再重复 */
+    private val mimeCache = HashMap<String, String>()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -227,8 +233,15 @@ class PlayerActivity : ComponentActivity() {
 
         override fun onPlayerError(error: PlaybackException) {
             saveProgress()
-            val msg = VodHttp.messageOf(error)
-            hint = "播放失败：$msg\n可以换一条线路试试；云盘线路要等插件换地址，稍等再点一次"
+            // PlaybackException 的 message 是笼统的「Source error」，
+            // 真正的原因（404 / 解析失败 / 超时）在 cause 链上，挖到底层再说人话
+            var root: Throwable = error
+            while (root.cause != null && root.cause !== root) root = root.cause!!
+            val msg = VodHttp.messageOf(root).ifBlank { error.message.orEmpty() }
+            val proxyNote = if (currentUrl().contains("127.0.0.1")) {
+                "\n这条线路走了本地代理（9978），失败原因可在影视的 Spider 插件诊断里看日志"
+            } else ""
+            hint = "播放失败：$msg$proxyNote\n可以换一条线路试试；云盘线路要等插件换地址，稍等再点一次"
             barVisible = true
         }
     }
@@ -267,9 +280,10 @@ class PlayerActivity : ComponentActivity() {
         hint = ""
         displayTitle = if (originalTitle == "播放") ep.name else "$originalTitle · ${ep.name}"
         barVisible = true
-        // 云盘类站点的集地址是 token，得先问插件换成真地址（或本地代理地址）。
-        // 问出来的结果写回列表，回头再点同一集就不用重复问。
-        if (ep.url.startsWith("http://") || ep.url.startsWith("https://")) {
+        // 只有确定的媒体直链（m3u8/mp4 等）才能直接喂播放器。
+        // 云盘站的集地址经常是分享链接网页（https://pan.quark.cn/s/xxx），
+        // 虽然以 http 开头，直接播必然 Source error——必须先问插件换真地址。
+        if (isDirectMedia(ep.url)) {
             startUrl(ep.url)
             return
         }
@@ -288,12 +302,90 @@ class PlayerActivity : ComponentActivity() {
         }
     }
 
+    /**
+     * 是不是「拿去就能播」的地址。
+     * 与 VodModule.looksDirect 同口径：必须是 http(s) 且带已知媒体扩展名。
+     * 本地代理地址（127.0.0.1:9978/proxy）没有扩展名，但它是插件换出来的
+     * 最终产物，绝不能再拿去问一遍插件（插件不认，等于又坏一层），所以算直链，
+     * 格式交给 sniffMime 去嗅探。
+     */
+    private fun isDirectMedia(u: String): Boolean {
+        if (u.contains("127.0.0.1") || u.contains("localhost")) return true
+        if (!u.startsWith("http")) return false
+        val s = u.lowercase()
+        return ".m3u8" in s || ".mp4" in s || ".flv" in s ||
+            ".mkv" in s || ".ts" in s
+    }
+
     private fun startUrl(u: String) {
         if (u.isBlank()) return
-        val p = ensurePlayer(headersByUrl[u].orEmpty())
-        p.setMediaItem(MediaItem.Builder().setUri(u).setMediaId(u).build())
-        p.prepare()
-        p.playWhenReady = true
+        scope.launch {
+            val headers = headersByUrl[u].orEmpty()
+            val mime = sniffMime(u, headers)
+            val p = ensurePlayer(headers)
+            // 本地代理地址没有文件扩展名，Media3 默认按 MP4 解析；
+            // 而插件回的常是 m3u8 播放列表——不显式给 mimeType 就是
+            // 「Source error」的头号来源。
+            val item = MediaItem.Builder().setUri(u).setMediaId(u)
+            if (mime != null) item.setMimeType(mime)
+            p.setMediaItem(item.build())
+            p.prepare()
+            p.playWhenReady = true
+        }
+    }
+
+    /** 从地址字面就能定的格式。 */
+    private fun mimeFromUrl(u: String): String? {
+        val s = u.lowercase()
+        return when {
+            ".m3u8" in s -> "application/x-mpegURL"
+            ".mpd" in s -> "application/dash+xml"
+            else -> null
+        }
+    }
+
+    /**
+     * 本地代理地址嗅探：拉流头部几百字节看内容长什么样。
+     * 插件的代理返回什么格式没有约定，只能看一眼——
+     * #EXTM3U 开头是 HLS，<MPD 开头是 DASH，其余交给默认 progressive。
+     */
+    private suspend fun sniffMime(u: String, headers: Map<String, String>): String? {
+        mimeFromUrl(u)?.let { return it }
+        val local = u.contains("127.0.0.1") || u.contains("localhost")
+        if (!local) return null
+        synchronized(mimeCache) { mimeCache[u] }?.let { return it }
+        val probed = withContext(Dispatchers.IO) {
+            runCatching {
+                val client = OkHttpClient.Builder()
+                    .connectTimeout(6, java.util.concurrent.TimeUnit.SECONDS)
+                    .readTimeout(6, java.util.concurrent.TimeUnit.SECONDS)
+                    .followRedirects(true)
+                    .build()
+                val b = Request.Builder().url(u)
+                headers.forEach { (k, v) -> if (!k.equals("range", true)) b.header(k, v) }
+                // 只要头部几百字节，够了；服务器不支持 Range 会回全量，读完就断开
+                b.header("Range", "bytes=0-1023")
+                client.newCall(b.build()).execute().use { resp ->
+                    val body = resp.body ?: return@runCatching null
+                    val buf = ByteArray(256)
+                    var n = 0
+                    while (n < buf.size) {
+                        val r = body.byteStream().read(buf, n, buf.size - n)
+                        if (r < 0) break
+                        n += r
+                    }
+                    if (n == 0) return@runCatching null
+                    val head = String(buf, 0, n, Charsets.ISO_8859_1).trimStart()
+                    when {
+                        head.startsWith("#EXTM3U") -> "application/x-mpegURL"
+                        head.startsWith("<MPD") -> "application/dash+xml"
+                        else -> null
+                    }
+                }
+            }.getOrNull()
+        }
+        if (probed != null) synchronized(mimeCache) { mimeCache[u] = probed }
+        return probed
     }
 
     private fun currentUrl(): String = episodes.getOrNull(epIndex)?.url.orEmpty()
