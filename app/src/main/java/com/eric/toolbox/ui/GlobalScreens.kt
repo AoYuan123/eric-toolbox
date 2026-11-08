@@ -65,6 +65,7 @@ import com.eric.toolbox.core.UpdateInfo
 import com.eric.toolbox.core.ApkInstaller
 import com.eric.toolbox.core.Mailer
 import com.eric.toolbox.core.Updater
+import com.eric.toolbox.core.UpdateBadge
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Calendar
@@ -163,17 +164,25 @@ fun MineScreen(go: (Route) -> Unit) {
 
         SectionLabel("关于")
         ListCard {
-            RowItem("检查更新", updateMsg.ifBlank { "当前 v${BuildConfig.VERSION_NAME}" }, onClick = {
+            UpdateBadge.tick
+            val hasNew = UpdateBadge.has(ctx)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (hasNew && update == null) Box(Modifier.padding(end = 8.dp).size(8.dp).background(Color(0xFFE5484D), CircleShape))
+                Box(Modifier.weight(1f)) {
+            RowItem("检查更新", updateMsg.ifBlank { if (hasNew) "有新版本 v${UpdateBadge.seenName(ctx)}，点这里更新" else "当前 v${BuildConfig.VERSION_NAME}" }, onClick = {
                 updateMsg = "正在检查…"
                 scope.launch {
                     updateMsg = try {
                         update = Updater.check()
+                        UpdateBadge.set(ctx, update)
                         if (update == null) "已是最新版本" else "发现新版本 v${update!!.versionName}（${update!!.source}）"
                     } catch (e: Exception) {
                         "检查失败：${e.message ?: "网络错误"}"
                     }
                 }
             })
+                }
+            }
             update?.let { u ->
                 if (u.notes.isNotBlank()) Text(u.notes, color = C.Muted, fontSize = 12.sp, modifier = Modifier.padding(vertical = 6.dp))
                 Button(

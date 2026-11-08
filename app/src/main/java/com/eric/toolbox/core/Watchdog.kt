@@ -14,6 +14,7 @@ import java.util.concurrent.TimeUnit
 class WatchdogWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, params) {
     override suspend fun doWork(): Result {
         MonitorService.sync(applicationContext)
+        UpdateBadge.refresh(applicationContext)
         return Result.success()
     }
 

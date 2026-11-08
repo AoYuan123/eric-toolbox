@@ -41,6 +41,14 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.eric.toolbox.core.ModuleRegistry
 import com.eric.toolbox.core.MonitorService
+import com.eric.toolbox.core.UpdateBadge
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.launch
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.offset
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import com.eric.toolbox.ui.ArrangeScreen
 import com.eric.toolbox.ui.BackupScreen
 import com.eric.toolbox.ui.C
@@ -143,6 +151,7 @@ class MainActivity : ComponentActivity() {
         super.onResume()
         ThemeManager.apply(this)
         MonitorService.sync(this)
+        lifecycleScope.launch { UpdateBadge.refresh(applicationContext) }
     }
 
     private fun handleIntent(intent: Intent?) {
@@ -166,20 +175,25 @@ private fun BottomBar(current: Route, go: (Route) -> Unit) {
         Row(Modifier.fillMaxWidth().padding(top = 4.dp, bottom = 4.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
             TabItem("首页", Icons.Filled.Home, current == Route.Home, Modifier.weight(1f)) { go(Route.Home) }
             TabItem("记录", Icons.AutoMirrored.Filled.ReceiptLong, current == Route.Records, Modifier.weight(1f)) { go(Route.Records) }
-            TabItem("我的", Icons.Filled.Person, current == Route.Mine, Modifier.weight(1f)) { go(Route.Mine) }
+            val ctx = LocalContext.current
+            UpdateBadge.tick
+            TabItem("我的", Icons.Filled.Person, current == Route.Mine, Modifier.weight(1f), dot = UpdateBadge.has(ctx)) { go(Route.Mine) }
         }
     }
 }
 
 @Composable
-private fun TabItem(label: String, icon: ImageVector, active: Boolean, modifier: Modifier, onClick: () -> Unit) {
+private fun TabItem(label: String, icon: ImageVector, active: Boolean, modifier: Modifier, dot: Boolean = false, onClick: () -> Unit) {
     val color = if (active) C.Gold else C.Muted
     Column(
         modifier.heightIn(min = 52.dp).clickable(onClick = onClick),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
-        Icon(icon, null, tint = color)
+        Box {
+            Icon(icon, null, tint = color)
+            if (dot) Box(Modifier.align(Alignment.TopEnd).offset(x = 3.dp, y = (-2).dp).size(9.dp).background(Color(0xFFE5484D), CircleShape))
+        }
         Text(label, color = color, fontSize = 12.sp)
     }
 }
