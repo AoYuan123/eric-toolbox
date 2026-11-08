@@ -77,6 +77,8 @@ fun MinePane(onOpenSubs: () -> Unit, onOpenQuickAdd: () -> Unit) {
     // 用户可能把「推荐源」删了，给一个能加回来的入口，否则只能拷粘贴配置
     var hasPreset by remember { mutableStateOf(BuiltinSources.hasPresetSub(ctx)) }
     var showDiag by remember { mutableStateOf(false) }
+    var diagBusy by remember { mutableStateOf(false) }
+    var diagReport by remember { mutableStateOf("") }
 
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
@@ -120,7 +122,36 @@ fun MinePane(onOpenSubs: () -> Unit, onOpenQuickAdd: () -> Unit) {
                     log.ifBlank { "还没有记录。先去搜一次片，再回来看。" },
                     color = C.Muted, fontSize = 10.sp, lineHeight = 15.sp,
                 )
-                Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                if (diagReport.isNotBlank()) {
+                    Text(diagReport, color = C.Text, fontSize = 11.sp, lineHeight = 16.sp)
+                }
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    // 自检比让用户「去搜一次再贴日志」省事：点一下就有逐站结论
+                    if (diagBusy) {
+                        CircularProgressIndicator(
+                            Modifier.width(14.dp).height(14.dp),
+                            color = C.Gold, strokeWidth = 2.dp,
+                        )
+                        Text("自检中…", color = C.Muted, fontSize = 12.sp)
+                    } else {
+                        Text(
+                            "自检（搜「三体」）", color = C.Gold, fontSize = 12.sp,
+                            modifier = Modifier
+                                .clickable {
+                                    diagBusy = true
+                                    diagReport = ""
+                                    scope.launch {
+                                        diagReport = runCatching { SpiderHub.selfTest("三体") }
+                                            .getOrElse { "自检本身出错: ${it.message}" }
+                                        diagBusy = false
+                                    }
+                                }
+                                .padding(vertical = 4.dp),
+                        )
+                    }
                     Text(
                         "复制日志", color = C.Gold, fontSize = 12.sp,
                         modifier = Modifier
@@ -130,7 +161,11 @@ fun MinePane(onOpenSubs: () -> Unit, onOpenQuickAdd: () -> Unit) {
                     Text(
                         "清空", color = C.Muted, fontSize = 12.sp,
                         modifier = Modifier
-                            .clickable { SpiderHub.clearLogs(); showDiag = false }
+                            .clickable {
+                                SpiderHub.clearLogs()
+                                diagReport = ""
+                                showDiag = false
+                            }
                             .padding(vertical = 4.dp),
                     )
                 }

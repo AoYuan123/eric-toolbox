@@ -1,6 +1,7 @@
 package com.eric.toolbox.modules.vod.core
 
 import android.content.Context
+import android.database.sqlite.SQLiteDatabase
 import com.eric.toolbox.modules.vod.model.VodItem
 import com.eric.toolbox.modules.vod.model.VodSite
 import com.eric.toolbox.modules.vod.model.VodTime
@@ -45,6 +46,8 @@ class SpiderEngine(
         private set
 
     init {
+        // 必须在 Class.forName 之前：壳的静态初始化也可能去开那个库
+        prepareHostEnv()
         val odex = File(ctx.codeCacheDir, "spider_odex").apply { mkdirs() }
         loader = DexClassLoader(jar.absolutePath, odex.absolutePath, null, ctx.classLoader)
         initClass = Class.forName(INIT_CLASS, true, loader)
@@ -60,6 +63,30 @@ class SpiderEngine(
         if (!ok) {
             bootError = "插件初始化方法没有调用成功（Init.init 既不是静态也无法实例化）"
             SpiderDebug.log(bootError)
+        }
+    }
+
+    /**
+     * TVBox 那套插件假定宿主 App 有 `databases/tv` 这个库，init 时会以只读方式打开它
+     * （可能是读自己的缓存/配置）。本 App 没有这个文件，壳会抛
+     * SQLiteCantOpenDatabaseException 并把 init 的后续步骤跳过——真机上表现为
+     * 「插件引擎就绪但搜索全空」。
+     *
+     * 所以加载前先建一个合法的空库：必须以可写方式建一次并写进表结构，
+     * 否则 0 字节文件在只读打开时仍然不是合法数据库。
+     */
+    private fun prepareHostEnv() {
+        runCatching {
+            val dbFile = ctx.getDatabasePath(HOST_DB_NAME)
+            dbFile.parentFile?.mkdirs()
+            if (!dbFile.isFile || dbFile.length() == 0L) {
+                SQLiteDatabase.openOrCreateDatabase(dbFile, null).use { db ->
+                    db.execSQL("CREATE TABLE IF NOT EXISTS eric_meta (k TEXT PRIMARY KEY, v TEXT)")
+                }
+                SpiderDebug.log("宿主数据库占位已建: ${dbFile.absolutePath}")
+            }
+        }.onFailure {
+            SpiderDebug.log("宿主数据库占位失败: ${it.javaClass.simpleName}: ${it.message}")
         }
     }
 
@@ -117,8 +144,13 @@ class SpiderEngine(
     }
 
     private fun create(site: VodSite, api: String): Spider {
-        viaGuard(api)?.let { return it }
-        return viaReflect(site, api)
+        val s = viaGuard(api) ?: viaReflect(site, api)
+        // 插件站点几乎都在 init 里读 ext（接口地址、cookie、token 之类）。
+        // 这条路以前只给反射路径调了，加固壳拿到的实例是「没初始化」的，
+        // 搜索会直接返回空——真机上表现为「引擎就绪但一条都搜不到」。
+        runCatching { s.init(ctx, site.ext) }
+            .onFailure { SpiderDebug.log("init($api) 抛异常: ${rootMessage(it)}") }
+        return s
     }
 
     private fun viaGuard(api: String): Spider? = runCatching {
@@ -139,8 +171,6 @@ class SpiderEngine(
         val cls = Class.forName("$SPIDER_PKG$api", true, loader)
         val s = cls.getDeclaredConstructor().newInstance() as Spider
         runCatching { s.siteKey = api }
-        runCatching { s.init(ctx, site.ext) }
-            .onFailure { SpiderDebug.log("init($api) 抛异常: ${rootMessage(it)}") }
         SpiderDebug.log("反射创建 $api 成功")
         return s
     }
@@ -198,11 +228,19 @@ class SpiderEngine(
     private fun call(site: VodSite, block: (Spider) -> String): SiteClient.PageResult = try {
         val raw = block(spider(site))
         if (raw.isBlank()) {
+            SpiderDebug.log("${site.name}: 插件返回空串")
             SiteClient.PageResult(error = "插件返回空数据")
         } else {
-            parse(raw, site)
+            val page = parse(raw, site)
+            // 空结果是最难查的一种：可能是没搜到、可能是接口被墙回了错误 JSON。
+            // 把原文头部留下来，看日志就能分辨。
+            if (page.items.isEmpty()) {
+                SpiderDebug.log("${site.name}: 0 条，原文前 160 字: ${raw.take(160)}")
+            }
+            page
         }
     } catch (e: Throwable) {
+        SpiderDebug.log("${site.name}: 调用失败 ${rootMessage(e)}")
         SiteClient.PageResult(error = rootMessage(e))
     }
 
@@ -281,6 +319,9 @@ class SpiderEngine(
     companion object {
         private const val INIT_CLASS = "com.github.catvod.spider.Init"
         private const val SPIDER_PKG = "com.github.catvod.spider."
+
+        /** 插件壳假定宿主有这个库，见 prepareHostEnv 的注释 */
+        private const val HOST_DB_NAME = "tv"
 
         /** 少数配置写成 csp_Xxx.csp_Yyy（想指定内部类），只取第一段 */
         fun classNameOf(api: String): String = api.trim().substringBefore('.')
