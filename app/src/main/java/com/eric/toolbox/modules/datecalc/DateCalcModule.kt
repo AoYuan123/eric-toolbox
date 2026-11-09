@@ -82,7 +82,7 @@ private fun DateCalcScreen(onBack: () -> Unit) {
         if (tab == "diff") DiffPane() else AddPane()
         Text(
             "支持 1901–2100 年的农历。节假日数据为 ${CalendarData.HOLIDAY_FIRST_YEAR}–${CalendarData.HOLIDAY_LAST_YEAR} 年（按国务院办公厅放假通知）；" +
-                "2027 年放假安排国务院尚未公布，公布后随版本更新，在此之前 2027 年及以后的工作日只按周末计算并会标注。",
+                "2028 年放假安排国务院尚未公布（通常每年 11 月公布），在此之前 2028 年及以后的工作日只按周末计算并会标注。",
             color = C.Muted, fontSize = 11.sp, lineHeight = 16.sp, modifier = Modifier.padding(horizontal = 4.dp),
         )
         Box(Modifier.height(16.dp))

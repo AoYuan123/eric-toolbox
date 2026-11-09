@@ -36,6 +36,22 @@ class DateLogicTest {
         assertFalse(Workdays.isWorkday(d("2026-10-31"))) // 普通周六
     }
 
+    @Test fun officialHolidays2027() {
+        // 国办发明电〔2026〕10号：春节 2/5–2/13 放假，1/31（周日）、2/14（周日）上班；劳动节 5/1–5/5，5/8（周六）上班；
+        // 端午 6/9（周三）、中秋 9/15（周三）；国庆 10/1–10/7，9/26（周日）、10/9（周六）上班
+        assertFalse(Workdays.isWorkday(d("2027-02-08")))
+        assertFalse(Workdays.isWorkday(d("2027-02-12")))
+        assertTrue(Workdays.isWorkday(d("2027-01-31")))
+        assertTrue(Workdays.isWorkday(d("2027-02-14")))
+        assertFalse(Workdays.isWorkday(d("2027-05-04")))
+        assertTrue(Workdays.isWorkday(d("2027-05-08")))
+        assertFalse(Workdays.isWorkday(d("2027-06-09")))
+        assertFalse(Workdays.isWorkday(d("2027-09-15")))
+        assertTrue(Workdays.isWorkday(d("2027-09-26")))
+        assertTrue(Workdays.isMakeupWorkday(d("2027-10-09")))
+        assertFalse(Workdays.isWorkday(d("2027-10-06")))
+    }
+
     @Test fun crossYearMakeupDay() {
         // 2019 年元旦调休：2018-12-29（周六）上班（这条数据在 2019 年的通知里）
         assertTrue(Workdays.isWorkday(d("2018-12-29")))
@@ -71,7 +87,8 @@ class DateLogicTest {
     }
 
     @Test fun uncoveredYears() {
-        assertEquals(listOf(2027), Workdays.uncoveredYears(d("2026-12-01"), d("2027-01-31")))
+        assertEquals(listOf(2028), Workdays.uncoveredYears(d("2027-12-01"), d("2028-01-31")))
+        assertEquals(emptyList<Int>(), Workdays.uncoveredYears(d("2026-12-01"), d("2027-01-31")))
         assertTrue(Workdays.uncoveredYears(d("2026-01-01"), d("2026-12-31")).isEmpty())
     }
 }
