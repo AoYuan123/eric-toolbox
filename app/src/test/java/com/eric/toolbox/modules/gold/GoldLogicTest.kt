@@ -106,6 +106,17 @@ class SessionTest {
         assertTrue(Session.marketTrading(at(2026, 10, 31, 1, 0)))   // 周五夜盘延续到周六凌晨
         assertFalse(Session.marketTrading(at(2026, 10, 31, 10, 0))) // 周六白天休市
         assertFalse(Session.marketTrading(at(2026, 11, 2, 1, 0)))   // 周一凌晨（周日无夜盘）
+        // 法定节假日（对照上金所 2026 年休市公告）
+        assertFalse(Session.marketTrading(at(2026, 10, 5, 10, 0)))  // 国庆，周一白天休市
+        assertFalse(Session.marketTrading(at(2026, 9, 30, 21, 0)))  // 国庆前最后一天晚上无夜盘
+        assertFalse(Session.marketTrading(at(2026, 10, 1, 1, 0)))   // 也就没有凌晨延续
+        assertTrue(Session.marketTrading(at(2026, 9, 30, 10, 0)))   // 节前最后一天白天照常
+        assertFalse(Session.marketTrading(at(2026, 2, 13, 21, 0)))  // 春节前周五晚上无夜市（公告原文）
+        assertFalse(Session.marketTrading(at(2026, 4, 30, 21, 0)))  // 劳动节前周四晚上无夜市（公告原文）
+        assertFalse(Session.marketTrading(at(2026, 4, 3, 21, 0)))   // 清明前周五晚上无夜市（下周一放假）
+        assertFalse(Session.marketTrading(at(2026, 2, 14, 10, 0)))  // 调休上班的周六，金交所照样休市
+        assertTrue(Session.marketTrading(at(2026, 2, 24, 10, 0)))   // 节后第一天开市
+        assertTrue(Session.marketTrading(at(2026, 2, 24, 21, 0)))   // 当晚恢复夜盘
     }
 
     @Test fun bankSessions() {

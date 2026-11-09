@@ -1,5 +1,8 @@
 package com.eric.toolbox.modules.gold
 
+import com.eric.toolbox.modules.datecalc.Workdays
+import java.time.DayOfWeek
+import java.time.LocalDate
 import java.util.Calendar
 import java.util.TimeZone
 import kotlin.math.ceil
@@ -88,18 +91,32 @@ object Session {
     private fun cal(ms: Long) = Calendar.getInstance(BJ).apply { timeInMillis = ms }
 
     /**
-     * 上海金：日盘 周一至周五 9:00–15:30；夜盘 周一至周五 20:00–次日 2:30。
-     * 法定节假日休市无法离线判断，靠“报价时间是否过期”兜底。
+     * 上海金：日盘 9:00–15:30；夜盘 20:00–次日 2:30（属于下一个交易日）。
+     * 交易日 = 周一至周五且不是法定放假日（调休上班的周末金交所照样休市）。
+     * 节前最后一个交易日晚上没有夜盘：上金所 2026 年公告逐条对得上——
+     * 12/31（周三）、2/13（周五）、4/3（周五）、4/30（周四）晚上都无夜市。
+     * 节假日数据覆盖到 CalendarData.HOLIDAY_LAST_YEAR，之后的年份只按周末判断。
      */
     fun marketTrading(nowMs: Long): Boolean {
         val c = cal(nowMs)
-        val dow = c.get(Calendar.DAY_OF_WEEK)
         val m = c.get(Calendar.HOUR_OF_DAY) * 60 + c.get(Calendar.MINUTE)
-        val weekday = dow in Calendar.MONDAY..Calendar.FRIDAY
-        if (weekday && m in (9 * 60) until (15 * 60 + 30)) return true
-        if (weekday && m >= 20 * 60) return true
-        if (dow in Calendar.TUESDAY..Calendar.SATURDAY && m < 2 * 60 + 30) return true
+        val d = LocalDate.of(c.get(Calendar.YEAR), c.get(Calendar.MONTH) + 1, c.get(Calendar.DAY_OF_MONTH))
+        if (m in (9 * 60) until (15 * 60 + 30)) return sgeTradingDay(d)
+        if (m >= 20 * 60) return hasNightSession(d)
+        if (m < 2 * 60 + 30) return hasNightSession(d.minusDays(1))
         return false
+    }
+
+    /** 上金所交易日：周一至周五，且不在国务院公布的放假日里。 */
+    fun sgeTradingDay(d: LocalDate): Boolean =
+        d.dayOfWeek != DayOfWeek.SATURDAY && d.dayOfWeek != DayOfWeek.SUNDAY && Workdays.isWorkday(d)
+
+    /** d 这天晚上有没有夜盘：d 是交易日，且紧接着的下一个周一至周五也是交易日（否则是节前最后一天）。 */
+    fun hasNightSession(d: LocalDate): Boolean {
+        if (!sgeTradingDay(d)) return false
+        var n = d.plusDays(1)
+        while (n.dayOfWeek == DayOfWeek.SATURDAY || n.dayOfWeek == DayOfWeek.SUNDAY) n = n.plusDays(1)
+        return sgeTradingDay(n)
     }
 
     /** 工行积存金：周一至周五 9:10–22:30。 */

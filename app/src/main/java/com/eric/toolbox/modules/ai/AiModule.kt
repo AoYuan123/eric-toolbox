@@ -251,8 +251,8 @@ private fun AiChat(onBack: () -> Unit, openSettings: () -> Unit, openHistory: ()
                 Text("${AiLogic.provider(s.provider).name.substringBefore("（")} · ${s.model.removePrefix("deepseek-")} · 本月 ¥${"%.2f".format(cost)} / 上限 ¥${"%.0f".format(s.cap)}",
                     color = C.Muted, fontSize = 11.sp, fontFamily = FontFamily.Monospace, maxLines = 1)
             }
-            HeadIcon(Icons.Outlined.Add, "新对话") { AiAgent.newChat(app); input = "" }
-            HeadIcon(Icons.Outlined.History, "历史对话", onClick = openHistory)
+            HeadIcon(Icons.Outlined.Add, "新对话") { if (AiAgent.busy) { Toast.makeText(ctx, "AI 还在回答，等这条说完再切换", Toast.LENGTH_SHORT).show() } else { AiAgent.newChat(app); input = "" } }
+            HeadIcon(Icons.Outlined.History, "历史对话") { if (AiAgent.busy) { Toast.makeText(ctx, "AI 还在回答，等这条说完再切换", Toast.LENGTH_SHORT).show() } else openHistory() }
             HeadIcon(Icons.Outlined.Settings, "设置", onClick = openSettings)
         }
 
@@ -376,7 +376,7 @@ private fun AiHistory(onBack: () -> Unit) {
         Row(Modifier.fillMaxWidth().padding(start = 4.dp, end = 12.dp, top = 8.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             TopBarBack(onBack)
             Text("历史对话", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = C.Text, modifier = Modifier.weight(1f))
-            SmallBtn("新对话", gold = true) { AiAgent.newChat(ctx); onBack() }
+            SmallBtn("新对话", gold = true) { if (AiAgent.busy) { Toast.makeText(ctx, "AI 还在回答，等这条说完再切换", Toast.LENGTH_SHORT).show() } else { AiAgent.newChat(ctx); onBack() } }
         }
         Text("点一下继续聊，长按删除。最多保留 100 个。", color = C.Muted, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
         LazyColumn(Modifier.fillMaxSize().padding(horizontal = 14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -385,7 +385,7 @@ private fun AiHistory(onBack: () -> Unit) {
                 val cur = c.id == AiAgent.chatId
                 Column(Modifier.fillMaxWidth().background(C.Surface, RoundedCornerShape(14.dp))
                     .border(1.dp, if (cur) C.Gold.copy(alpha = 0.6f) else Color.Transparent, RoundedCornerShape(14.dp))
-                    .press(onLongPress = { del = c }) { AiAgent.openChat(ctx, c.id); onBack() }.padding(14.dp)) {
+                    .press(onLongPress = { del = c }) { if (AiAgent.busy) { Toast.makeText(ctx, "AI 还在回答，等这条说完再切换", Toast.LENGTH_SHORT).show() } else { AiAgent.openChat(ctx, c.id); onBack() } }.padding(14.dp)) {
                     Text(c.title, color = C.Text, fontSize = 15.sp, maxLines = 1)
                     Text((if (cur) "当前 · " else "") + fmt.format(Date(c.updated)), color = C.Muted, fontSize = 12.sp, fontFamily = FontFamily.Monospace)
                 }
@@ -505,7 +505,7 @@ private fun AiSettings(onBack: () -> Unit, openLog: () -> Unit) {
 
             ListCard {
                 RowItem("操作记录", "", onClick = openLog)
-                RowItem("新开对话", "", sub = "当前对话保存在「历史对话」里", onClick = { AiAgent.newChat(ctx); Toast.makeText(ctx, "已新开对话", Toast.LENGTH_SHORT).show() })
+                RowItem("新开对话", "", sub = "当前对话保存在「历史对话」里", onClick = { if (AiAgent.busy) Toast.makeText(ctx, "AI 还在回答，等这条说完再切换", Toast.LENGTH_SHORT).show() else { AiAgent.newChat(ctx); Toast.makeText(ctx, "已新开对话", Toast.LENGTH_SHORT).show() } })
             }
             Box(Modifier.size(20.dp))
         }
