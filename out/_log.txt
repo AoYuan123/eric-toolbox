@@ -1,0 +1,8 @@
+mpep_fp.html 200 2753603 https://www.uspto.gov/web/offices/pac/mpep/mpep-9095-Form-Paragraph-Chapter.html
+mpep_2156.html 200 70616 https://www.uspto.gov/web/offices/pac/mpep/s2156.html
+mpep_2158.html 200 124056 https://www.uspto.gov/web/offices/pac/mpep/s2158.html
+mpep_2159.html 200 78670 https://www.uspto.gov/web/offices/pac/mpep/s2159.html
+mpep_2111.html 200 161960 https://www.uspto.gov/web/offices/pac/mpep/s2111.html
+mpep_2112.html 200 98783 https://www.uspto.gov/web/offices/pac/mpep/s2112.html
+cn_guide2023_page.html 200 7210 https://www.cnipa.gov.cn/art/2023/12/21/art_526_189193.html?xxgkhide=1
+guide2023_9523e461 6777328 https://www.cnipa.gov.cn/module/download/downfile.jsp?classid=0&showname=%E4%B8%93%E5%88%A9%E5%AE%A1%E6%9F%A5%E6%8C%87%E5%8D%97.pdf&filename=5753f257e6a04b6f8e305eb6d34ba452.pdf
