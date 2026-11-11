@@ -6,7 +6,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 /**
- * 专业法律英语的内置数据（assets/law/*.json，由 tools/law/build.py 从官方原文生成并逐字核对）。
+ * 专业法律英语的内置数据（assets/law/ 下的 json，由 tools/law/build.py 从官方原文生成并逐字核对）。
  * 每段文字都是 en/zh 一对：中国法条 zh 是原文、en 是全国人大官方英译；美国法条 en 是原文、zh 是 Claude 学习译文。
  */
 object LawData {
