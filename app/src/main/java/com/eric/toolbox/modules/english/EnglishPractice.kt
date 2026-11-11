@@ -11,6 +11,7 @@ import android.os.Bundle
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
+import com.eric.toolbox.core.VoiceInput
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -52,6 +53,7 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -92,34 +94,14 @@ internal val SCENES = listOf(
 
 private fun hasMic(ctx: Context) = ContextCompat.checkSelfPermission(ctx, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
 
-/** 英文语音识别（系统识别服务）。没有服务时返回 false。 */
-private class EnListener(private val ctx: Context, private val onPartial: (String) -> Unit, private val onFinal: (String) -> Unit, private val onError: (String?) -> Unit) {
-    private var rec: SpeechRecognizer? = null
-    fun start(): Boolean {
-        if (!SpeechRecognizer.isRecognitionAvailable(ctx)) return false
-        val r = rec ?: SpeechRecognizer.createSpeechRecognizer(ctx).also { rec = it }
-        var last = ""
-        r.setRecognitionListener(object : RecognitionListener {
-            override fun onReadyForSpeech(p: Bundle?) {}
-            override fun onBeginningOfSpeech() {}
-            override fun onRmsChanged(v: Float) {}
-            override fun onBufferReceived(b: ByteArray?) {}
-            override fun onEndOfSpeech() {}
-            override fun onEvent(t: Int, p: Bundle?) {}
-            override fun onPartialResults(b: Bundle?) { b?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull()?.let { last = it; onPartial(it) } }
-            override fun onResults(b: Bundle?) { onFinal(b?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull().orEmpty().ifBlank { last }) }
-            override fun onError(e: Int) {
-                if (last.isNotBlank()) onFinal(last)
-                else onError(when (e) { SpeechRecognizer.ERROR_NO_MATCH, SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> tr("没听清，再说一次", "Didn't catch that"); SpeechRecognizer.ERROR_CLIENT -> null; else -> tr("识别出错（$e）", "Recognition error ($e)") })
-            }
-        })
-        r.startListening(Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
-            .putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-            .putExtra(RecognizerIntent.EXTRA_LANGUAGE, "en-US").putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true))
-        return true
+/** 英文识别：共用 core/VoiceInput，错误转成提示文字。 */
+private class EnListener(ctx: Context, onPartial: (String) -> Unit, onFinal: (String) -> Unit, private val onError: (String?) -> Unit) {
+    private val v = VoiceInput(ctx, "en-US", onPartial, onFinal) { e ->
+        onError(when (e) { VoiceInput.NOTHING, SpeechRecognizer.ERROR_NO_MATCH, SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> tr("没听清，再说一次", "Didn't catch that"); SpeechRecognizer.ERROR_CLIENT -> null; else -> tr("识别出错（$e）", "Recognition error ($e)") })
     }
-    fun stop() { rec?.stopListening() }
-    fun destroy() { rec?.destroy(); rec = null }
+    fun start(hold: Boolean = false) = v.start(hold)
+    fun stop() = v.stop()
+    fun destroy() = v.destroy()
 }
 
 // ======================= 练口语 =======================
@@ -270,7 +252,7 @@ private fun Conversation(s: Scene, voice: EnVoice, onBack: () -> Unit) {
                     detectTapGestures(onPress = {
                         if (!hasMic(ctx)) { perm.launch(Manifest.permission.RECORD_AUDIO); return@detectTapGestures }
                         voice.stop()
-                        if (listener.start()) { listening = true; tryAwaitRelease(); listener.stop() }
+                        if (listener.start(hold = true)) { listening = true; tryAwaitRelease(); listener.stop() }
                         else Toast.makeText(ctx, tr("这台手机没有系统语音识别，可以用输入法的语音输入打字", "No speech recognition on this phone; use keyboard voice input"), Toast.LENGTH_LONG).show()
                     })
                 }, contentAlignment = Alignment.Center) { Icon(Icons.Filled.Mic, contentDescription = tr("按住说话", "Hold to speak"), tint = onAcc(), modifier = Modifier.size(30.dp)) }
@@ -301,16 +283,19 @@ internal fun PronScreen(voice: EnVoice, onBack: () -> Unit) {
     val (target, targetZh) = sentences[i % sentences.size]
     val file = remember { File(ctx.cacheDir, "pron.m4a") }
     var recording by remember { mutableStateOf(false) }
-    var hasRec by remember(i) { mutableStateOf(false) }
-    var check by remember(i) { mutableStateOf<List<Pair<String, Boolean>>?>(null) }
+    // 不按句子 i 重建状态：识别回调只建一次，会一直写进第一次建的那个状态里，换句后就看不到结果
+    var hasRec by remember { mutableStateOf(false) }
+    var check by remember { mutableStateOf<List<Pair<String, Boolean>>?>(null) }
     var checking by remember { mutableStateOf(false) }
     val recorder = remember { mutableStateOf<MediaRecorder?>(null) }
     val player = remember { mutableStateOf<MediaPlayer?>(null) }
     val perm = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
     DisposableEffect(Unit) { onDispose { runCatching { recorder.value?.release() }; player.value?.release(); file.delete(); voice.stop() } }
-    val listener = remember { EnListener(ctx, onPartial = {}, onFinal = { checking = false; check = EnglishLogic.wordCheck(target, it) }, onError = { checking = false; it?.let { m -> Toast.makeText(ctx, m, Toast.LENGTH_SHORT).show() } }) }
+    // 用最新的句子做比对：remember 里的回调只建一次，直接写 target 会一直拿着第一句（11-10 真机反馈：上面显示的句子和标准音对不上）
+    val currentTarget by rememberUpdatedState(target)
+    val listener = remember { EnListener(ctx, onPartial = {}, onFinal = { checking = false; check = EnglishLogic.wordCheck(currentTarget, it) }, onError = { checking = false; it?.let { m -> Toast.makeText(ctx, m, Toast.LENGTH_SHORT).show() } }) }
     DisposableEffect(Unit) { onDispose { listener.destroy() } }
-    LaunchedEffect(i) { file.delete() }
+    LaunchedEffect(i) { file.delete(); hasRec = false; check = null; checking = false; listener.destroy() }
 
     fun startRec() {
         voice.stop(); player.value?.release(); player.value = null

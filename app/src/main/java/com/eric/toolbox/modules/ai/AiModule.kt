@@ -8,6 +8,7 @@ import android.os.Bundle
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
+import com.eric.toolbox.core.VoiceInput
 import android.speech.tts.TextToSpeech
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
@@ -186,59 +187,44 @@ private fun AiChat(onBack: () -> Unit, openSettings: () -> Unit, openHistory: ()
     // ---- 按住说话 ----
     var listening by remember { mutableStateOf(false) }
     var partial by remember { mutableStateOf("") }
-    val rec = remember { mutableStateOf<SpeechRecognizer?>(null) }
-    DisposableEffect(Unit) { onDispose { rec.value?.destroy() } }
-    val permLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { ok ->
-        if (!ok) Toast.makeText(ctx, "没有麦克风权限，没法语音输入", Toast.LENGTH_LONG).show()
-        else Toast.makeText(ctx, "已允许麦克风，再按住🎙说话", Toast.LENGTH_SHORT).show()
-    }
-    fun startListen(): Boolean {
-        if (ContextCompat.checkSelfPermission(ctx, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
-            permLauncher.launch(Manifest.permission.RECORD_AUDIO); return false
-        }
-        val available = SpeechRecognizer.isRecognitionAvailable(ctx)
-        AiStore.prefs(app).edit().putBoolean("asr_available", available).putLong("asr_checked", System.currentTimeMillis()).apply()
-        if (!available) {
-            Toast.makeText(ctx, "这台手机没有系统语音识别服务。可以点输入框，用输入法键盘上的🎙语音输入", Toast.LENGTH_LONG).show()
-            return false
-        }
-        val r = rec.value ?: SpeechRecognizer.createSpeechRecognizer(ctx).also { rec.value = it }
-        r.setRecognitionListener(object : RecognitionListener {
-            override fun onReadyForSpeech(params: Bundle?) {}
-            override fun onBeginningOfSpeech() {}
-            override fun onRmsChanged(rmsdB: Float) {}
-            override fun onBufferReceived(buffer: ByteArray?) {}
-            override fun onEndOfSpeech() {}
-            override fun onEvent(eventType: Int, params: Bundle?) {}
-            override fun onPartialResults(b: Bundle?) { b?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull()?.let { partial = it } }
-            override fun onResults(b: Bundle?) {
-                listening = false
-                val text = b?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull().orEmpty().ifBlank { partial }
-                partial = ""
-                if (text.isBlank()) return
+    val voice = remember {
+        VoiceInput(app, "zh-CN",
+            onPartial = { partial = it },
+            onFinal = { text ->
+                listening = false; partial = ""
                 if (AiStore.settings(app).voiceAutoSend) AiAgent.send(app, text) else input = (input + text)
-            }
-            override fun onError(error: Int) {
-                listening = false
-                val msg = when (error) {
-                    SpeechRecognizer.ERROR_NO_MATCH, SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "没听清，再按住说一次"
+            },
+            onError = { e ->
+                listening = false; partial = ""
+                val msg = when (e) {
+                    VoiceInput.NOTHING, SpeechRecognizer.ERROR_NO_MATCH, SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "没听清，再按住说一次"
                     SpeechRecognizer.ERROR_NETWORK, SpeechRecognizer.ERROR_NETWORK_TIMEOUT -> "语音识别要联网，检查一下网络"
                     SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "没有麦克风权限"
                     SpeechRecognizer.ERROR_CLIENT -> null
-                    else -> "语音识别出错（代码 $error）"
+                    else -> "语音识别出错（代码 $e）"
                 }
-                if (partial.isNotBlank()) { input += partial; partial = "" }
                 msg?.let { Toast.makeText(ctx, it, Toast.LENGTH_SHORT).show() }
-            }
-        })
-        val i = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
-            .putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-            .putExtra(RecognizerIntent.EXTRA_LANGUAGE, "zh-CN")
-            .putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
-        partial = ""; listening = true
+            })
+    }
+    DisposableEffect(Unit) { onDispose { voice.destroy() } }
+    val permLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { ok ->
+        if (!ok) Toast.makeText(ctx, "没有麦克风权限，没法语音输入", Toast.LENGTH_LONG).show()
+        else Toast.makeText(ctx, "已允许麦克风，再按住话筒说话", Toast.LENGTH_SHORT).show()
+    }
+    /** hold=true：按住说话，松手才发（停顿不会提前结束）。 */
+    fun startListen(hold: Boolean = false): Boolean {
+        if (ContextCompat.checkSelfPermission(ctx, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            permLauncher.launch(Manifest.permission.RECORD_AUDIO); return false
+        }
+        val available = VoiceInput.available(ctx)
+        AiStore.prefs(app).edit().putBoolean("asr_available", available).putLong("asr_checked", System.currentTimeMillis()).apply()
+        if (!available) {
+            Toast.makeText(ctx, "这台手机没有系统语音识别服务。可以点输入框，用输入法键盘上的语音输入", Toast.LENGTH_LONG).show()
+            return false
+        }
         tts.value?.stop()
-        r.startListening(i)
-        return true
+        partial = ""; listening = true
+        return voice.start(hold)
     }
 
     LaunchedEffect(Unit) { if (AiAgent.voiceOnOpen) { AiAgent.voiceOnOpen = false; startListen() } }
@@ -345,7 +331,7 @@ private fun AiChat(onBack: () -> Unit, openSettings: () -> Unit, openHistory: ()
                 Box(
                     Modifier.size(68.dp).background(if (listening) Red else C.Gold, CircleShape).pointerInput(Unit) {
                         detectTapGestures(onPress = {
-                            if (startListen()) { tryAwaitRelease(); rec.value?.stopListening() }
+                            if (startListen(hold = true)) { tryAwaitRelease(); voice.stop() }
                         })
                     },
                     contentAlignment = Alignment.Center,

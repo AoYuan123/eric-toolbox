@@ -75,4 +75,11 @@ class EnglishLogicTest {
         val r = EnglishLogic.wordCheck("The claimed antibody binds specifically to human CD19.", "the claimed antibody binds specially to human cd19")
         assertEquals(listOf(true, true, true, true, false, true, true, true), r.map { it.second })
     }
+
+    @Test fun fixCaseFromAllCapsRecognizer() {
+        assertEquals("I would like a coffee. What about you?", com.eric.toolbox.core.VoiceInput.fixCase("I WOULD LIKE A COFFEE. WHAT ABOUT YOU?"))
+        assertEquals("I'm fine, and I think so", com.eric.toolbox.core.VoiceInput.fixCase("I'M FINE, AND I THINK SO"))
+        assertEquals("Hello there", com.eric.toolbox.core.VoiceInput.fixCase("Hello there"))
+        assertEquals("OK", com.eric.toolbox.core.VoiceInput.fixCase("OK"))
+    }
 }
