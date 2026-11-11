@@ -2,6 +2,8 @@ name: Fetch law sources
 on:
   push:
     branches: [sources]
+permissions:
+  contents: write
 jobs:
   fetch:
     runs-on: ubuntu-latest
@@ -25,7 +27,12 @@ jobs:
           echo "usc21 zip: $z21" | tee -a out/_log.txt
           [ -n "$z21" ] && curl -sSL -A "$UA" "https://uscode.house.gov/download/$z21" -o out/usc21.zip
           grep -o 'Public Law [0-9]*-[0-9]*[^<]*' out/uscode_download.html | head -5 | tee -a out/_log.txt
-      - uses: actions/upload-artifact@v4
-        with:
-          name: sources
-          path: out/
+      - name: Save to branch sources-data
+        run: |
+          rm -f out/*.zip
+          git config user.name "github-actions"; git config user.email "github-actions@users.noreply.github.com"
+          git checkout --orphan sources-data
+          git rm -rq --cached . || true
+          git add -f out/
+          git commit -qm "sources $(date -u +%F)"
+          git push -f origin sources-data
