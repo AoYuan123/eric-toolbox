@@ -18,10 +18,11 @@ jobs:
             code=$(curl -sSL --compressed -A "$UA" --max-time 120 -o "out/$name" -w '%{http_code}' "$url" || echo ERR)
             echo "$name $code $(stat -c %s out/$name 2>/dev/null) $url" | tee -a out/_log.txt
           done < .github/sources.txt
-          curl -sSL -A "$UA" https://uscode.house.gov/download.html -o out/uscode_download.html
-          z=$(grep -o '[^"]*xml_usc35[^"]*\.zip' out/uscode_download.html | head -1); echo "usc35 zip: $z" | tee -a out/_log.txt
-          if [ -n "$z" ]; then case "$z" in http*) u="$z";; /*) u="https://uscode.house.gov$z";; *) u="https://uscode.house.gov/$z";; esac; curl -sSL -A "$UA" "$u" -o out/usc35.zip; (cd out && unzip -o -q usc35.zip && rm usc35.zip); fi
-          ls -la out >> out/_log.txt
+          # 审查指南 2023 页面里的附件（PDF/DOC）
+          for u in $(grep -o 'href="[^"]*\.\(pdf\|doc\|docx\)[^"]*"' out/cn_guide2023_page.html | cut -d'"' -f2 | sort -u); do
+            case "$u" in http*) ;; /*) u="https://www.cnipa.gov.cn$u";; *) u="https://www.cnipa.gov.cn/art/2023/12/21/$u";; esac
+            f=guide2023_$(echo "$u" | md5sum | cut -c1-8); curl -sSL -A "$UA" --max-time 300 -o "out/$f" "$u"; echo "$f $(stat -c %s out/$f) $u" | tee -a out/_log.txt
+          done
       - name: Save to branch sources-data
         run: |
           rm -f out/*.zip
