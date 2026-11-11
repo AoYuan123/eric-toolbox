@@ -1,0 +1,31 @@
+name: Fetch law sources
+on:
+  push:
+    branches: [sources]
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download
+        run: |
+          mkdir -p out
+          UA="Mozilla/5.0 (X11; Linux x86_64) EricToolbox-sources"
+          while IFS='|' read -r name url; do
+            [ -z "$name" ] && continue
+            code=$(curl -sSL -A "$UA" --max-time 120 -o "out/$name" -w '%{http_code}' "$url" || echo ERR)
+            echo "$name $code $(stat -c %s out/$name 2>/dev/null) $url" | tee -a out/_log.txt
+          done < .github/sources.txt
+          # 美国法典第 35 编：从下载页找当前发布点的 XML 包
+          curl -sSL -A "$UA" https://uscode.house.gov/download/download.shtml -o out/uscode_download.html
+          z=$(grep -o 'releasepoints/us/pl/[^"]*xml_usc35@[^"]*\.zip' out/uscode_download.html | head -1)
+          echo "usc35 zip: $z" | tee -a out/_log.txt
+          [ -n "$z" ] && curl -sSL -A "$UA" "https://uscode.house.gov/download/$z" -o out/usc35.zip && (cd out && unzip -o -q usc35.zip && ls -la >> _log.txt)
+          z21=$(grep -o 'releasepoints/us/pl/[^"]*xml_usc21@[^"]*\.zip' out/uscode_download.html | head -1)
+          echo "usc21 zip: $z21" | tee -a out/_log.txt
+          [ -n "$z21" ] && curl -sSL -A "$UA" "https://uscode.house.gov/download/$z21" -o out/usc21.zip
+          grep -o 'Public Law [0-9]*-[0-9]*[^<]*' out/uscode_download.html | head -5 | tee -a out/_log.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sources
+          path: out/

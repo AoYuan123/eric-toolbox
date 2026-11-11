@@ -1,0 +1,16 @@
+cn_patent_law.html|https://english.cnipa.gov.cn/art/2022/8/25/art_3039_1.html
+cn_guiding84.html|https://www.court.gov.cn/shenpan/xiangqing/37672.html
+cn_spc_ipc_rules2023.html|https://www.court.gov.cn/fabu/xiangqing/416012.html
+cn_spc_ipc_notice2023.html|https://www.court.gov.cn/fabu/xiangqing/416002.html
+cn_impl_rules2023.html|https://www.gov.cn/zhengce/content/202312/content_6921633.htm
+us_amgen.pdf|https://www.supremecourt.gov/opinions/22pdf/21-757_k5g1.pdf
+us_ksr.pdf|https://www.supremecourt.gov/opinions/06pdf/04-1350.pdf
+us_myriad.pdf|https://www.supremecourt.gov/opinions/12pdf/12-398_1b7d.pdf
+us_mayo.pdf|https://www.supremecourt.gov/opinions/11pdf/10-1150.pdf
+us_chakrabarty.html|https://supreme.justia.com/cases/federal/us/447/303/
+us_festo.html|https://supreme.justia.com/cases/federal/us/535/722/
+us_ariad.html|https://law.justia.com/cases/federal/appellate-courts/cafc/08-1248/08-1248-2011-03-26.html
+us_juno.html|https://law.justia.com/cases/federal/appellate-courts/cafc/20-1758/20-1758-2021-08-26.html
+us_ariad_cafc.pdf|https://cafc.uscourts.gov/opinions-orders/08-1248.pdf
+cl_juno_search.json|https://www.courtlistener.com/api/rest/v4/search/?q=%22Juno+Therapeutics%22+Kite&type=o&court=cafc
+cl_ariad_search.json|https://www.courtlistener.com/api/rest/v4/search/?q=%22Ariad%22+%22Eli+Lilly%22&type=o&court=cafc
