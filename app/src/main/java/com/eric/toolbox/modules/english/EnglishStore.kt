@@ -1,6 +1,7 @@
 package com.eric.toolbox.modules.english
 
 import android.content.Context
+import com.eric.toolbox.modules.english.law.LawData
 import com.eric.toolbox.core.Store
 import com.eric.toolbox.modules.read.Dict
 import com.eric.toolbox.modules.read.Notes
@@ -9,6 +10,7 @@ import java.io.File
 
 /** 学英语的存储：卡片进度 files/english/cards.json（进度随备份走 prefs 里的计数；卡片文件不大）。 */
 object EnglishStore {
+    private const val LAW = com.eric.toolbox.modules.english.law.LAW_BOOK
     fun prefs(ctx: Context) = Store.module(ctx, "english")
     private fun file(ctx: Context) = File(File(ctx.filesDir, "english").apply { mkdirs() }, "cards.json")
 
@@ -66,6 +68,9 @@ object EnglishStore {
             val ph = if (!t.en.contains(' ')) runCatching { Dict.lookup(ctx, t.en)?.phonetic }.getOrNull().orEmpty() else ""
             Item(book, key, t.en, t.zh, t.ex, t.exZh, t.note, ph, book == EnglishBooks.DAILY)
         }
+        LAW -> LawData.get(ctx).terms.firstOrNull { it.key == key }?.let { t ->
+            Item(book, key, t.en, t.zh, t.exEn, t.exZh, t.noteZh + "（出处：" + t.refLabel + "）", "", t.en.contains(' '))
+        }
         EnglishBooks.MINE -> Notes.words(ctx).firstOrNull { it.word.equals(key, true) }?.let { w ->
             Item(book, key, w.word, ReadLogic.shortMeaning(w.meaning, 3), w.sentence, "", if (w.bookTitle.isNotBlank()) "来自《${w.bookTitle}》" else "", w.phonetic, false)
         }
@@ -79,6 +84,7 @@ object EnglishStore {
             val keys: List<String> = when (b) {
                 EnglishBooks.IP, EnglishBooks.DAILY -> EnglishBooks.book(b).map { it.key }
                 EnglishBooks.MINE -> Notes.words(ctx).sortedBy { it.addedAt }.map { it.word.lowercase() }
+                LAW -> LawData.get(ctx).terms.map { it.key }
                 else -> runCatching { Dict.wordsByTag(ctx, b).map { it.word.lowercase() } }.getOrDefault(emptyList())
             }
             keys.asSequence().map { k -> "$b:$k" }.filter { cs[it]?.isNew != false }.take(limit).map { id -> EnglishLogic.Card(id, b, id.substringAfter(':')) }.toList()
@@ -98,6 +104,7 @@ object EnglishStore {
     fun bookSize(ctx: Context, book: String): Int = when (book) {
         EnglishBooks.IP, EnglishBooks.DAILY -> EnglishBooks.book(book).size
         EnglishBooks.MINE -> Notes.words(ctx).size
+        LAW -> LawData.get(ctx).terms.size
         else -> runCatching { Dict.wordsByTag(ctx, book).size }.getOrDefault(0)
     }
 

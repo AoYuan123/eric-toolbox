@@ -31,6 +31,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.MenuBook
 import androidx.compose.material.icons.outlined.Mic
 import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.Gavel
 import androidx.compose.material.icons.outlined.Style
 import androidx.compose.material.icons.outlined.Translate
 import androidx.compose.material.icons.outlined.VolumeUp
@@ -138,6 +139,7 @@ fun EnglishRoot(onBack: () -> Unit, isTab: Boolean) {
             "books" -> BooksScreen { page = "home" }
             "speak" -> SpeakScreen(voice) { page = "home" }
             "pron" -> PronScreen(voice) { page = "home" }
+            "law" -> com.eric.toolbox.modules.english.law.LawRoot(voice) { page = "home" }
             else -> EnHome(isTab, onBack, go = { page = it })
         }
     }
@@ -227,6 +229,17 @@ private fun EnHome(isTab: Boolean, onBack: () -> Unit, go: (String) -> Unit) {
                     next?.let { go(if (it.third == "study" && queue.isEmpty()) "speak" else it.third) }
                 }
             }
+            Tile(onClick = { go("law") }) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Outlined.Gavel, null, tint = C.Text, modifier = Modifier.size(22.dp))
+                    Spacer(Modifier.width(12.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(tr("专业法律英语", "Patent law English"), color = C.Text, fontSize = 15.sp, fontWeight = FontWeight.Medium)
+                        Caption(tr("中美专利法 · 经典判例 · 诉讼地图 · 中英对照", "Statutes · cases · litigation map · bilingual"))
+                    }
+                    Text("›", color = C.Muted, fontSize = 22.sp)
+                }
+            }
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 Entry(Icons.Outlined.Search, tr("查单词", "Lookup"), tr("离线秒查 · 专业释义", "Offline · domain sense"), Modifier.weight(1f)) { go("lookup") }
                 Entry(Icons.Outlined.Style, tr("词书", "Word books"), tr("工作 · 口语 · 生词", "Work · Speaking · Mine"), Modifier.weight(1f)) { go("books") }
@@ -272,6 +285,7 @@ fun bookName(b: String): String = when (b) {
     EnglishBooks.IP -> tr("生物医药知识产权", "Biopharma IP")
     EnglishBooks.DAILY -> tr("日常口语高频表达", "Everyday phrases")
     EnglishBooks.MINE -> tr("我的生词本", "My words")
+    com.eric.toolbox.modules.english.law.LAW_BOOK -> tr("专利法条术语", "Statutory patent terms")
     else -> EnglishStore.EXAMS[b]?.let { tr(it.first, it.second) } ?: b
 }
 
@@ -535,7 +549,7 @@ private fun BooksScreen(onBack: () -> Unit) {
         Header(tr("词书", "Word books"), onBack)
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Caption(tr("选中的词书会交替出新词。专业词书给的是专利 / 生物医药语境里的意思。", "New words rotate across the selected books."), Modifier.padding(horizontal = 4.dp))
-            listOf(EnglishBooks.IP, EnglishBooks.DAILY, EnglishBooks.MINE).forEach { b -> BookRow(b, b in books, ctx) { toggle(b) } }
+            listOf(EnglishBooks.IP, com.eric.toolbox.modules.english.law.LAW_BOOK, EnglishBooks.DAILY, EnglishBooks.MINE).forEach { b -> BookRow(b, b in books, ctx) { toggle(b) } }
             Caption(tr("考试词书（来自离线词典标签）", "Exam lists (from the offline dictionary)"), Modifier.padding(start = 4.dp, top = 8.dp))
             EnglishStore.EXAMS.keys.forEach { b -> BookRow(b, b in books, ctx) { toggle(b) } }
             Caption(tr("每天新词", "New words per day"), Modifier.padding(start = 4.dp, top = 8.dp))
