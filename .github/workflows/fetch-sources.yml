@@ -18,12 +18,10 @@ jobs:
             code=$(curl -sSL --compressed -A "$UA" --max-time 120 -o "out/$name" -w '%{http_code}' "$url" || echo ERR)
             echo "$name $code $(stat -c %s out/$name 2>/dev/null) $url" | tee -a out/_log.txt
           done < .github/sources.txt
-          # govinfo 检索 CAFC 判决（DEMO_KEY 公共测试密钥）
-          for q in '"Juno Therapeutics" "Kite Pharma"' '"Ariad Pharmaceuticals" "Eli Lilly"'; do
-            n=$(echo "$q" | tr -cd 'A-Za-z' | cut -c1-12)
-            curl -sS -X POST -H 'Content-Type: application/json' --max-time 60 "https://api.govinfo.gov/search?api_key=DEMO_KEY" \
-              -d "{\"query\":\"collection:USCOURTS courtcode:cafc $q\",\"pageSize\":10,\"offsetMark\":\"*\"}" -o "out/gi_$n.json"; echo "gi_$n $(stat -c %s out/gi_$n.json)" | tee -a out/_log.txt
-          done
+          curl -sSL -A "$UA" https://uscode.house.gov/download.html -o out/uscode_download.html
+          z=$(grep -o '[^"]*xml_usc35[^"]*\.zip' out/uscode_download.html | head -1); echo "usc35 zip: $z" | tee -a out/_log.txt
+          if [ -n "$z" ]; then case "$z" in http*) u="$z";; /*) u="https://uscode.house.gov$z";; *) u="https://uscode.house.gov/$z";; esac; curl -sSL -A "$UA" "$u" -o out/usc35.zip; (cd out && unzip -o -q usc35.zip && rm usc35.zip); fi
+          ls -la out >> out/_log.txt
       - name: Save to branch sources-data
         run: |
           rm -f out/*.zip
