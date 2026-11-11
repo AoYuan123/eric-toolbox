@@ -18,15 +18,15 @@ jobs:
             code=$(curl -sSL -A "$UA" --max-time 120 -o "out/$name" -w '%{http_code}' "$url" || echo ERR)
             echo "$name $code $(stat -c %s out/$name 2>/dev/null) $url" | tee -a out/_log.txt
           done < .github/sources.txt
-          # 美国法典第 35 编：从下载页找当前发布点的 XML 包
-          curl -sSL -A "$UA" https://uscode.house.gov/download/download.shtml -o out/uscode_download.html
-          z=$(grep -o 'releasepoints/us/pl/[^"]*xml_usc35@[^"]*\.zip' out/uscode_download.html | head -1)
-          echo "usc35 zip: $z" | tee -a out/_log.txt
-          [ -n "$z" ] && curl -sSL -A "$UA" "https://uscode.house.gov/download/$z" -o out/usc35.zip && (cd out && unzip -o -q usc35.zip && ls -la >> _log.txt)
-          z21=$(grep -o 'releasepoints/us/pl/[^"]*xml_usc21@[^"]*\.zip' out/uscode_download.html | head -1)
-          echo "usc21 zip: $z21" | tee -a out/_log.txt
-          [ -n "$z21" ] && curl -sSL -A "$UA" "https://uscode.house.gov/download/$z21" -o out/usc21.zip
-          grep -o 'Public Law [0-9]*-[0-9]*[^<]*' out/uscode_download.html | head -5 | tee -a out/_log.txt
+          # WIPO 页面里的 PDF 链接
+          for u in $(grep -o 'https://[^"]*lexdocs[^"]*\.pdf' out/wipo_21027.html | sort -u); do f=wipo_$(basename $u); curl -sSL -A "$UA" --max-time 120 -o "out/$f" "$u"; echo "$f $(stat -c %s out/$f) $u" | tee -a out/_log.txt; done
+          for u in $(grep -o '/wipolex/[a-z]*/text/[0-9]*' out/wipo_21027.html | sort -u); do echo "wipo text link $u" | tee -a out/_log.txt; done
+          # 美国法典第 35 编：下载页里的 XML 包
+          z=$(grep -o '[^"]*xml_usc35[^"]*\.zip' out/uscode_download.html | head -1); echo "usc35 zip: $z" | tee -a out/_log.txt
+          if [ -n "$z" ]; then case "$z" in http*) u="$z";; /*) u="https://uscode.house.gov$z";; *) u="https://uscode.house.gov/$z";; esac; curl -sSL -A "$UA" "$u" -o out/usc35.zip; (cd out && unzip -o -q usc35.zip; ls -la | tee -a _log.txt); fi
+          grep -o 'href="[^"]*"' out/uscode_download.html | head -60 >> out/_log.txt
+          # 药品专利链接附件
+          for u in $(grep -o 'href="[^"]*\.doc[x]*"' out/cn_linkage_gov.html | cut -d'"' -f2); do case "$u" in http*) ;; *) u="https://www.gov.cn/zhengce/zhengceku/2021-07/04/$u";; esac; f=linkage_$(basename $u); curl -sSL -A "$UA" -o "out/$f" "$u"; echo "$f $(stat -c %s out/$f) $u" | tee -a out/_log.txt; done
       - name: Save to branch sources-data
         run: |
           rm -f out/*.zip
