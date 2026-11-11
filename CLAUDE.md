@@ -9,6 +9,7 @@
   与下文「type=3 一律跳过」的红线相反。远程代码与 App 同进程，能读到 ai_secret / trials_secret / mail_secret。已向用户说明风险，等他决定。
 - v2.1.73：`Session.marketTrading` 按上金所节假日判断（交易日=周一至周五且非放假日；节前最后一天无夜盘，对照 2026 年上金所公告 12/31、2/13、4/3、4/30 都对得上）。
   工行积存金 `bankTrading` 没改：如意金自 2026-02-07 起每天 9:10–22:30 都能做（非交易日限额），积存金节假日规则未查到。
+- v2.1.75：按住说话改为松手才发（core/VoiceInput，AI 管家/练口语/学发音共用）；英文识别全大写时改正常大小写；学发音换句后比对错句已修。
 - 下面第 1 节是 11-02 的旧状态，版本号等以本节为准。
 
 ## 1. 现状（截至 2026-11-02）
@@ -192,6 +193,15 @@ app/src/test/.../GoldLogicTest.kt、DateLogicTest.kt、TrialLogicTest.kt   单�
 - AI 多对话：files/ai/chats/<id>.json + index.json，当前 id 存 mod_ai.chat_cur；老 chat.json 自动迁入。AiAgent.newChat/openChat/deleteChat；对话页右上 ＋/历史/设置，历史页长按删除，最多 100 个。
 - 首页：金价改大号数字（整数 46sp + 小数灰色）+ 涨跌色块 + 整行走势；翻译卡在金价下面，临床试验在最底部。
 - 电脑中转偶发 GitHub 下载 504（17:12、17:45、18:12 起连续多次），等下一轮自动重试即可。
+
+### 专业法律英语（11-11，学英语 › 专业法律英语）
+- 代码：`modules/english/law/`（LawData 读 assets/law/*.json；LawScreens：首页/法条目录/单条/判例/诉讼地图/中美对照/术语/练习）。每段默认英文，点一下切中文（`Flip`）。
+- 数据由 `tools/law/build.py` 生成：原文在 `tools/law/src/`（GitHub Actions 从官方网站下载，sources 分支的 fetch-sources.yml，结果在 sources-data 分支；容器直连这些网站不通，artifact 也下不了，所以存成分支）。
+  build.py 逐字核对：判决引文必须在原文里找到；地图里的每个期限必须在出处条文里找到对应数字；术语例句从条文自动截取。对不上就报错退出。
+- 来源与译文：中国专利法 zh 原文（cnipa.gov.cn）+ 全国人大官方英译（subsites.chinadaily.com.cn/npc，CNIPA 英文站从境外 404）；美国 35 U.S.C. 来自 uscode.house.gov 发布点 PL 119-138，中文是 Claude 译（us_zh_*.py，逐行对应）；
+  21 U.S.C. §355 取 govinfo 2024 年版；判例：supremecourt.gov（Amgen）、loc.gov U.S. Reports PDF（KSR/Mayo/Myriad/Chakrabarty/Festo）、court.gov.cn（指导案例 84 号、2022 知产法庭典型案例）。
+- 没拿到原文的：CAFC 判决（Juno v. Kite、Ariad）——cafc.uscourts.gov https、govinfo、CourtListener、Justia 从 GitHub 都拿不到，所以没收录。
+- 新增内容：在对应 .py 里加，跑 build.py；法条更新时重跑抓取再 build。术语词书 id = "law"（学英语 › 词书可选）。
 
 **zlib 的边界（改动前务必守住）**
 - **不做内置 WebView**：站点前置 Cloudflare 人机校验（`Checking your browser`），WebView 里基本过不去；一律 `Intent.ACTION_VIEW` 交给系统浏览器，顺带走系统代理。
