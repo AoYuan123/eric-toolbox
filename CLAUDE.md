@@ -202,6 +202,10 @@ app/src/test/.../GoldLogicTest.kt、DateLogicTest.kt、TrialLogicTest.kt   单�
   21 U.S.C. §355 取 govinfo 2024 年版；判例：supremecourt.gov（Amgen）、loc.gov U.S. Reports PDF（KSR/Mayo/Myriad/Chakrabarty/Festo）、court.gov.cn（指导案例 84 号、2022 知产法庭典型案例）。
 - 没拿到原文的：CAFC 判决（Juno v. Kite、Ariad）——cafc.uscourts.gov https、govinfo、CourtListener、Justia 从 GitHub 都拿不到，所以没收录。
 - 新增内容：在对应 .py 里加，跑 build.py；法条更新时重跑抓取再 build。术语词书 id = "law"（学英语 › 词书可选）。
+- 审查指南（11-11 第二批）：`tools/law/guide_us.py`（MPEP 9th Rev. 01.2024 节选 31 节，英文原句逐字核对 src/mpep/*.html.gz）、`guide_cn.py`（审查指南 2023 第二部分 22 节，中文逐字核对 src/cn_guide/guide2023.txt.gz = 官方 PDF 的 pdftotext -layout 文字；
+  局令第 84 号改过的章节必须 source="order84" 从 order84.txt 取，build.py 会拦）、`oa.py`（MPEP Form Paragraphs 原句 25 条按 ¶ 编号核对；中国审查意见句子和美国答复措辞是 Claude 整理，界面标明非官方）。
+  输出 guide_us.json / guide_cn.json / oa.json；界面：法律英语首页「审查指南」「美国 MPEP」「审查意见英文表达」，单元页有「常用英文表达」「对照阅读」，法条页反查「审查指南 / MPEP 怎么用这一条」；练习加「审查意见句子」中译英。
+  MPEP 正文里的费用金额别搬进 App（2025 年已调过）。
 
 **zlib 的边界（改动前务必守住）**
 - **不做内置 WebView**：站点前置 Cloudflare 人机校验（`Checking your browser`），WebView 里基本过不去；一律 `Intent.ACTION_VIEW` 交给系统浏览器，顺带走系统代理。

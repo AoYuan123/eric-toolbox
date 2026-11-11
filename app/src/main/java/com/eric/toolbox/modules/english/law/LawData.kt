@@ -14,6 +14,8 @@ object LawData {
     data class Unit(
         val id: String, val label: String, val labelEn: String, val title: String, val group: String, val groupEn: String,
         val paras: List<Para>, val explain: List<Para>, val key: Boolean, val excerpt: Boolean, val zhOfficialOnly: Boolean,
+        /** 审查指南 / MPEP 单元才有：中文标题、关联单元、常用表达、是否局令第 84 号修改后的文本、原文网址。 */
+        val titleZh: String = "", val see: List<String> = emptyList(), val phrases: List<Para> = emptyList(), val amended: Boolean = false, val url: String = "",
     )
     data class Doc(
         val id: String, val title: String, val titleEn: String, val version: String, val versionEn: String, val orig: String,
@@ -34,11 +36,23 @@ object LawData {
     data class Compare(val topic: String, val topicZh: String, val us: Side, val cn: Side, val diff: List<Para>)
     data class Term(val key: String, val en: String, val zh: String, val ref: String, val refLabel: String, val noteZh: String, val noteEn: String, val exEn: String, val exZh: String)
     data class Meta(val checked: String, val usCurrency: String, val cnVersion: String)
+    /** 审查意见表达：US 是 MPEP 表格段落原句（fp 编号），CN / reply 是 Claude 整理的常见写法。 */
+    data class OaItem(val fp: String, val title: String, val titleZh: String, val en: String, val zh: String, val note: String, val law: String)
+    data class OaGroup(val name: String, val nameZh: String, val items: List<OaItem>)
+    class Oa(val us: List<OaGroup>, val cn: List<OaGroup>, val reply: List<Para>)
 
     private var cache: Bundle? = null
-    class Bundle(val cn: Doc, val us: Doc, val cases: List<Case>, val map: List<Juris>, val compare: List<Compare>, val terms: List<Term>, val meta: Meta) {
-        val units: Map<String, Unit> = (cn.units + us.units).associateBy { it.id }
-        fun docOf(unitId: String): Doc = if (unitId.startsWith("cn")) cn else us
+    class Bundle(val cn: Doc, val us: Doc, val cases: List<Case>, val map: List<Juris>, val compare: List<Compare>, val terms: List<Term>, val meta: Meta,
+                 val glCn: Doc, val glUs: Doc, val oa: Oa) {
+        val units: Map<String, Unit> = (cn.units + us.units + glCn.units + glUs.units).associateBy { it.id }
+        fun docOf(unitId: String): Doc = when {
+            unitId.startsWith("gl:") -> glCn
+            unitId.startsWith("mpep:") -> glUs
+            unitId.startsWith("cn") -> cn
+            else -> us
+        }
+        /** 指向某条法条的审查指南 / MPEP 单元。 */
+        fun guidesFor(unitId: String): List<Unit> = (glCn.units + glUs.units).filter { unitId in it.see }
     }
 
     @Synchronized
@@ -57,7 +71,8 @@ object LawData {
         o.getString("checked"),
         o.getJSONArray("units").objs().map { u ->
             Unit(u.getString("id"), u.getString("label"), u.getString("labelEn"), u.optString("title"), u.getString("group"), u.getString("groupEn"),
-                paras(u.getJSONArray("paras")), paras(u.optJSONArray("explain")), u.optBoolean("key"), u.optBoolean("excerpt"), u.optBoolean("zhOfficialOnly"))
+                paras(u.getJSONArray("paras")), paras(u.optJSONArray("explain")), u.optBoolean("key"), u.optBoolean("excerpt"), u.optBoolean("zhOfficialOnly"),
+                u.optString("titleZh"), u.optJSONArray("see")?.strs() ?: emptyList(), paras(u.optJSONArray("phrases")), u.optBoolean("amended"), u.optString("url"))
         },
     )
 
@@ -83,8 +98,17 @@ object LawData {
             Term(t.getString("key"), t.getString("en"), t.getString("zh"), t.getString("ref"), t.getString("refLabel"), t.getString("noteZh"), t.getString("noteEn"), t.getString("exEn"), t.getString("exZh"))
         }
         val m = JSONObject(read(ctx, "meta.json"))
+        val o = JSONObject(read(ctx, "oa.json"))
+        val oa = Oa(
+            o.getJSONArray("us").objs().map { g -> OaGroup(g.getString("group"), g.getString("groupZh"), g.getJSONArray("items").objs().map {
+                OaItem(it.getString("fp"), it.getString("title"), it.getString("titleZh"), it.getString("en"), it.getString("zh"), it.optString("note"), "") }) },
+            o.getJSONArray("cn").objs().map { g -> OaGroup(g.getString("groupEn"), g.getString("group"), g.getJSONArray("items").objs().map {
+                OaItem("", "", "", it.getString("en"), it.getString("zh"), "", it.optString("law")) }) },
+            paras(o.getJSONArray("reply")),
+        )
         return Bundle(doc(JSONObject(read(ctx, "law_cn.json"))), doc(JSONObject(read(ctx, "law_us.json"))), cases, map, compare, terms,
-            Meta(m.getString("checked"), m.getString("usCurrency"), m.getString("cnVersion")))
+            Meta(m.getString("checked"), m.getString("usCurrency"), m.getString("cnVersion")),
+            doc(JSONObject(read(ctx, "guide_cn.json"))), doc(JSONObject(read(ctx, "guide_us.json"))), oa)
     }
 
     // ---------------- 学习记录（存 mod_english，进备份） ----------------

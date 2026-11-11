@@ -201,12 +201,107 @@ for c in mc.COMPARE:
                     "cn": {"ref": c["cn"][0], "en": c["cn"][1], "zh": c["cn"][2]},
                     "diff": [P(e, z) for e, z in c["diff"]]})
 
+# ---------------- 审查指南 / MPEP 节选、审查意见表达 ----------------
+import gzip, html as _html
+def _gz(path): return gzip.open(path, "rt", encoding="utf-8", errors="replace").read()
+def _flat(s): return re.sub(r"\s+", "", s.replace("’", "'").replace("‘", "'").replace("“", '"').replace("”", '"'))
+_MPEP = {}
+def mpep_text(f):
+    if f not in _MPEP:
+        t = _gz(os.path.join(SRC, "mpep", f + ".gz"))
+        t = re.sub(r"<script.*?</script>|<style.*?</style>", "", t, flags=re.S)
+        _MPEP[f] = _flat(_html.unescape(re.sub(r"<[^>]+>", " ", t)))
+    return _MPEP[f]
+_FP = None
+def fp_text(k):
+    global _FP
+    if _FP is None:
+        t = _gz(os.path.join(SRC, "mpep", "mpep_fp.html.gz")); _FP = {}
+        for m in re.finditer(r'<a name="fp([^"]+)"></a>(.*?)(?=<a name="fp|\Z)', t, re.S):
+            _FP[m.group(1)] = _flat(_html.unescape(re.sub(r"<[^>]+>", " ", m.group(2).split("Examiner Note")[0])))
+    return _FP.get(k, "")
+def guide_text():
+    L = _gz(os.path.join(SRC, "cn_guide", "guide2023.txt.gz")).split("\n")
+    hdr = re.compile(r"^\s*(\d+\s+)?（\d+-\d+）(\s+\d+)?\s*$|专利审查指南第[一二三四五]部分第")
+    keep = [re.sub(r"^\s{0,3}(法|细则)\s*[\d.～~\-、，]+\s{2,}", "", l) for l in L if not hdr.search(l)]
+    t = re.sub(r"\s+", "", "\n".join(keep))
+    return re.sub(r"(细则|法)\d+(\.\d+)+(（\d+）)?", "", t)   # 版心旁注
+GUIDE = guide_text()
+ORDER84 = norm_zh(open(os.path.join(SRC, "cn_guide", "order84.txt"), encoding="utf-8").read())
+# 局令第 84 号改动的第二部分章节（"第十章第9" 只改了该节第二段，单独列出）
+AMENDED = ["第一章4.4", "第三章6.2.2", "第四章6.4", "第九章6", "第九章7", "第十章9", "第十章9.1.2.3", "第十章9.1.2.4"]
+
+gu, gc = load("guide_us"), load("guide_cn")
+GLID = {u["id"] for u in gu.GL_US} | {u["id"] for u in gc.GL_CN}
+def see_ok(uid, see):
+    for r in see:
+        if r not in UNIT and r not in GLID: errors.append(f"{uid} 关联了不存在的单元 {r}")
+    return see
+gl_us_units = []
+for u in gu.GL_US:
+    txt = mpep_text(u["file"]) + (mpep_text(u["extra"]) if u.get("extra") else "")
+    for en, zh in u["paras"]:
+        if _flat(en) not in txt: errors.append(f"{u['id']} 原文里找不到：{en[:70]}")
+    gl_us_units.append({"id": u["id"], "label": u["sec"], "labelEn": u["sec"], "title": u["title"], "titleZh": u["titleZh"],
+                        "group": u["groupZh"], "groupEn": u["group"], "paras": [P(e, z) for e, z in u["paras"]],
+                        "explain": [P(e, z) for e, z in u["notes"]], "key": bool(u.get("key")), "excerpt": True,
+                        "see": see_ok(u["id"], u["see"]), "url": "https://www.uspto.gov/web/offices/pac/mpep/s" + u["file"][5:-5] + ".html"})
+gl_cn_units = []
+for u in gc.GL_CN:
+    src = ORDER84 if u.get("source") == "order84" else GUIDE
+    for zh, en in u["paras"]:
+        if norm_zh(zh) not in src: errors.append(f"{u['id']} 原文里找不到：{zh[:40]}")
+    sec_key = re.sub(r"\s+", "", u["sec"])
+    m = re.match(r"第二部分第(.+?)章(\d[\d.]*)", sec_key)
+    if m and u.get("source") != "order84":
+        here = f"第{m.group(1)}章{m.group(2)}"
+        if any(here == a or (here.startswith(a + ".") and a not in ("第十章9",)) for a in AMENDED):
+            errors.append(f"{u['id']} 所在章节被局令第 84 号修改，要用修改后的文本")
+    gl_cn_units.append({"id": u["id"], "label": u["sec"], "labelEn": u["secEn"], "title": u["titleEn"], "titleZh": u["title"],
+                        "group": u["group"], "groupEn": u["groupEn"], "paras": [P(e, z) for z, e in u["paras"]],
+                        "explain": [], "phrases": [P(e, z) for z, e in u["phrases"]], "key": bool(u.get("key")), "excerpt": True,
+                        "amended": u.get("source") == "order84", "see": see_ok(u["id"], u["see"])})
+gl_us = {"id": "mpep", "title": "美国专利审查程序手册（MPEP）节选", "titleEn": "Manual of Patent Examining Procedure (MPEP) — selected sections",
+         "version": "第 9 版 Rev. 01.2024（2024 年 11 月发布，现行版）", "versionEn": "Ninth Edition, Revision 01.2024 (published November 2024, current)",
+         "orig": "en", "enLabel": "MPEP 原文", "zhLabel": "Claude 译（学习用）",
+         "note": "MPEP 不是法律，是 USPTO 给审查员的操作手册；法院不受其约束。Rev. 01.2024 之后 USPTO 又发过若干备忘录（如 2025 年 IPR 立案改由局长决定、2025-12 Ex parte Desjardins 关于 §101），以 USPTO 网站为准。",
+         "sources": [["MPEP 目录", "https://www.uspto.gov/web/offices/pac/mpep/index.html"], ["Form Paragraphs", "https://www.uspto.gov/web/offices/pac/mpep/mpep-9095-Form-Paragraph-Chapter.html"]],
+         "checked": CHECKED, "units": gl_us_units}
+gl_cn = {"id": "guide", "title": "专利审查指南（第二部分节选）", "titleEn": "Guidelines for Patent Examination (Part II, selected)",
+         "version": "2023 年版，经国家知识产权局令第 84 号修改（2026 年 1 月 1 日起施行）", "versionEn": "2023 edition as amended by CNIPA Order No. 84 (in force 1 January 2026)",
+         "orig": "zh", "enLabel": "Claude 英译（术语对齐专利法官方英译）", "zhLabel": "审查指南原文",
+         "note": "国家知识产权局没有发布现行指南的官方英文版。英文为 Claude 译，术语尽量与全国人大专利法英译一致；正式文件以中文为准。",
+         "sources": [["审查指南 2023（PDF）", "https://www.cnipa.gov.cn/art/2023/12/21/art_526_189193.html"], ["局令第 84 号", "https://www.cnipa.gov.cn/art/2025/11/13/art_74_202560.html"]],
+         "checked": CHECKED, "units": gl_cn_units}
+
+oa = load("oa")
+oa_out = {"us": [], "cn": [], "reply": [P(e, z) for e, z in oa.REPLY_US]}
+for g in oa.OA_US:
+    items = []
+    for it in g["items"]:
+        t = fp_text(it["fp"])
+        if not t: errors.append(f"表格段落 ¶{it['fp']} 不存在"); continue
+        if _flat(it["en"]) not in t: errors.append(f"¶{it['fp']} 原文里找不到：{it['en'][:60]}")
+        items.append({"fp": it["fp"], "title": it["title"], "titleZh": it["zhTitle"], "en": it["en"], "zh": it["zh"], "note": it["note"]})
+    oa_out["us"].append({"group": g["group"], "groupZh": g["groupZh"], "items": items})
+for g in oa.OA_CN:
+    items = []
+    for it in g["items"]:
+        zh, en = it[0], it[1]; law = it[2] if len(it) > 2 else ""
+        if law:
+            n = law.split(":")[1]
+            if norm_zh(zh) not in norm_zh("".join(cn["zh"][n])) or _flat(en) not in _flat(" ".join(cn["en"][n])):
+                errors.append(f"审查意见表达引用专利法第{n}条但对不上：{zh[:30]}")
+        items.append({"zh": zh, "en": en, "law": law})
+    oa_out["cn"].append({"group": g["group"], "groupEn": g["groupEn"], "items": items})
+
 if errors:
     print("核对没通过：\n  " + "\n  ".join(errors)); sys.exit(1)
 os.makedirs(OUT, exist_ok=True)
 def dump(name, obj): json.dump(obj, open(os.path.join(OUT, name), "w", encoding="utf-8"), ensure_ascii=False, separators=(",", ":"))
 dump("law_cn.json", law_cn); dump("law_us.json", law_us); dump("cases.json", cases)
 dump("map.json", juris); dump("compare.json", compare); dump("glossary.json", gl)
+dump("guide_us.json", gl_us); dump("guide_cn.json", gl_cn); dump("oa.json", oa_out)
 dump("meta.json", {"checked": CHECKED, "usCurrency": "Public Law 119-138 (2026-11-03)", "cnVersion": "2020 年修正",
                    "counts": {"cn": len(law_cn["units"]), "us": len(law_us["units"]), "cases": len(cases), "terms": len(gl)}})
-print("OK", {k: len(v) for k, v in [("cn", law_cn["units"]), ("us", law_us["units"]), ("cases", cases), ("terms", gl), ("compare", compare)]})
+print("OK", {k: len(v) for k, v in [("cn", law_cn["units"]), ("us", law_us["units"]), ("cases", cases), ("terms", gl), ("compare", compare), ("mpep", gl_us_units), ("guide", gl_cn_units), ("oa_us", [i for g in oa_out["us"] for i in g["items"]])]})

@@ -69,7 +69,8 @@ internal fun LawRoot(voice: EnVoice, onBack: () -> Unit) {
     val r = stack.last()
     when {
         r == "home" -> LawHome(data, ::go, ::back)
-        r.startsWith("doc:") -> DocScreen(if (r == "doc:cn") data.cn else data.us, ::go, ::back)
+        r.startsWith("doc:") -> DocScreen(when (r) { "doc:cn" -> data.cn; "doc:gl" -> data.glCn; "doc:mpep" -> data.glUs; else -> data.us }, ::go, ::back)
+        r == "oa" -> OaScreen(data, voice, ::back)
         r.startsWith("unit:") -> UnitScreen(data, r.removePrefix("unit:"), voice, ::go, ::back) { id -> stack[stack.lastIndex] = "unit:$id" }
         r == "cases" -> CaseList(data, ::go, ::back)
         r.startsWith("case:") -> CaseScreen(data, r.removePrefix("case:"), voice, ::go, ::back)
@@ -140,6 +141,14 @@ private fun LawHome(data: LawData.Bundle, go: (String) -> Unit, back: () -> Unit
                 HomeTile(tr("美国专利法", "U.S. Patent Act"), tr("35 U.S.C. 节选", "35 U.S.C. selected"), Modifier.weight(1f)) { go("doc:us") }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                HomeTile(tr("审查指南", "CN Guidelines"), tr("${data.glCn.units.size} 节 · 中文原文 + 英译", "${data.glCn.units.size} sections · ZH + EN"), Modifier.weight(1f)) { go("doc:gl") }
+                HomeTile(tr("美国 MPEP", "U.S. MPEP"), tr("${data.glUs.units.size} 节 · 102/103/112 + 程序", "${data.glUs.units.size} sections · 102/103/112"), Modifier.weight(1f)) { go("doc:mpep") }
+            }
+            Tile(onClick = { go("oa") }) {
+                Text(tr("审查意见英文表达", "Office action English"), color = C.Text, fontSize = 15.sp, fontWeight = FontWeight.Medium)
+                Caption(tr("USPTO 官方标准句 ${data.oa.us.sumOf { it.items.size }} 条 · 中国审查意见常用句英译 · 答复美国审查意见", "USPTO form paragraphs · CN OA sentences in English · US replies"))
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 HomeTile(tr("经典判例", "Leading cases"), tr("${data.cases.size} 个 · 先猜再看", "${data.cases.size} · predict first"), Modifier.weight(1f)) { go("cases") }
                 HomeTile(tr("诉讼地图", "Litigation map"), tr("机构 · 期限 · 去哪查", "Bodies · deadlines · sources"), Modifier.weight(1f)) { go("map") }
             }
@@ -154,10 +163,10 @@ private fun LawHome(data: LawData.Bundle, go: (String) -> Unit, back: () -> Unit
             Tile {
                 Caption(tr("来源与时效", "Sources and currency"), color = C.Gold)
                 Spacer(Modifier.height(4.dp))
-                Text(tr("美国：${data.us.version}\n中国：${data.cn.version}\n最后核对：${data.meta.checked}　已读 $read 条",
-                    "US: ${data.us.versionEn}\nChina: ${data.cn.versionEn}\nLast checked: ${data.meta.checked} · read $read"), color = C.Muted, fontSize = 13.sp, lineHeight = 20.sp)
+                Text(tr("美国：${data.us.version}\nMPEP：${data.glUs.version}\n中国：${data.cn.version}\n审查指南：${data.glCn.version}\n最后核对：${data.meta.checked}　已读 $read 条",
+                    "US: ${data.us.versionEn}\nMPEP: ${data.glUs.versionEn}\nChina: ${data.cn.versionEn}\nGuidelines: ${data.glCn.versionEn}\nLast checked: ${data.meta.checked} · read $read"), color = C.Muted, fontSize = 13.sp, lineHeight = 20.sp)
                 Spacer(Modifier.height(4.dp))
-                Caption(tr("法条原文由官方网站下载后逐字核对。中国法条英文是全国人大官方译文；美国法条和判例的中文是 Claude 译，仅供学习。", "Texts downloaded from official sites and checked word for word."))
+                Caption(tr("原文由官方网站下载后逐字核对。中国法条英文是全国人大官方译文；审查指南英文、美国法条/MPEP/判例的中文是 Claude 译，仅供学习。", "Texts downloaded from official sites and checked word for word."))
             }
             Spacer(Modifier.height(16.dp))
         }
@@ -202,7 +211,8 @@ private fun DocScreen(doc: LawData.Doc, go: (String) -> Unit, back: () -> Unit) 
                             if (u.key) Caption(tr("解读", "notes"), color = C.Gold)
                             if (read) { Spacer(Modifier.width(8.dp)); Caption("✓") }
                         }
-                        if (u.title.isNotBlank()) Caption(u.title)
+                        if (u.title.isNotBlank()) Caption(u.title + if (u.titleZh.isNotBlank()) " · ${u.titleZh}" else "")
+                        if (u.amended) Caption(tr("已按局令第 84 号修改（2026-01-01 起）", "Amended by Order No. 84 (from 2026-01-01)"), color = C.Gold)
                         Text(u.paras.firstOrNull()?.en.orEmpty(), color = C.Muted, fontSize = 13.sp, maxLines = 2, fontFamily = FontFamily.Serif)
                     }
                 }
@@ -232,6 +242,8 @@ private fun UnitScreen(data: LawData.Bundle, id: String, voice: EnVoice, go: (St
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Caption("${u.label} · ${u.group}" + if (u.excerpt) tr(" · 节选", " · excerpt") else "", Modifier.padding(horizontal = 4.dp))
             if (u.title.isNotBlank()) Text(u.title, color = C.Text, fontSize = 17.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(horizontal = 4.dp))
+            if (u.titleZh.isNotBlank()) Caption(u.titleZh, Modifier.padding(horizontal = 4.dp))
+            if (u.amended) Caption(tr("本节为国家知识产权局令第 84 号修改后的文本，2026 年 1 月 1 日起施行", "Text as amended by CNIPA Order No. 84, in force 1 January 2026"), Modifier.padding(horizontal = 4.dp), color = C.Gold)
             Tile(strong = true) {
                 val en = if (u.zhOfficialOnly) tr("Claude 英译", "English by Claude") else enNote
                 u.paras.forEach { p -> Flip(p, en, zhNote, allZh = allZh, voice = voice, indent = p.lvl) }
@@ -239,6 +251,20 @@ private fun UnitScreen(data: LawData.Bundle, id: String, voice: EnVoice, go: (St
             if (u.explain.isNotEmpty()) {
                 SectionTitle(tr("延伸解读", "Notes"))
                 Tile { u.explain.forEach { Flip(it, tr("解读 · Claude", "Notes · Claude"), tr("解读 · Claude", "Notes · Claude"), size = 15, allZh = allZh) } }
+            }
+            if (u.phrases.isNotEmpty()) {
+                SectionTitle(tr("常用英文表达", "Useful expressions"))
+                Tile { u.phrases.forEach { ph -> PhraseRow(ph, voice) } }
+            }
+            val linked = remember(id) { u.see.mapNotNull { data.units[it] } }
+            if (linked.isNotEmpty()) {
+                SectionTitle(tr("对照阅读", "Read alongside"))
+                linked.forEach { l -> Tile(onClick = { go("unit:${l.id}") }) { Text(l.labelEn, color = C.Text, fontSize = 14.sp); Caption(listOf(l.title, l.titleZh).filter { it.isNotBlank() }.joinToString(" · ")) } }
+            }
+            val guides = remember(id) { data.guidesFor(id) }
+            if (guides.isNotEmpty()) {
+                SectionTitle(tr("审查指南 / MPEP 怎么用这一条", "How the guidelines apply it"))
+                guides.forEach { l -> Tile(onClick = { go("unit:${l.id}") }) { Text(l.labelEn, color = C.Text, fontSize = 14.sp); Caption(listOf(l.title, l.titleZh).filter { it.isNotBlank() }.joinToString(" · ")) } }
             }
             if (terms.isNotEmpty()) {
                 SectionTitle(tr("本条术语", "Terms in this provision"))
@@ -256,6 +282,7 @@ private fun UnitScreen(data: LawData.Bundle, id: String, voice: EnVoice, go: (St
             }
             Caption(doc.note, Modifier.padding(horizontal = 4.dp))
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (u.url.isNotBlank()) Chip("↗ ${u.label}") { openUrl(ctx, u.url) }
                 doc.sources.forEach { (n, url) -> Chip("↗ $n") { openUrl(ctx, url) } }
             }
             Spacer(Modifier.height(16.dp))
@@ -469,11 +496,83 @@ private fun TermsScreen(data: LawData.Bundle, voice: EnVoice, go: (String) -> Un
     }
 }
 
+
+/** 一条常用表达：中文在上（你熟悉的说法），英文在下；点一下朗读英文。 */
+@Composable
+private fun PhraseRow(p: LawData.Para, voice: EnVoice) {
+    Column(Modifier.fillMaxWidth().press { voice.speak(p.en.substringBefore(" (").substringBefore(" / "), rate = 0.9f) }.padding(vertical = 6.dp)) {
+        Text(p.zh, color = C.Muted, fontSize = 13.sp)
+        Text(p.en, color = C.Text, fontSize = 15.sp, lineHeight = 22.sp, fontFamily = FontFamily.Serif)
+    }
+}
+
+// ======================= 审查意见英文表达 =======================
+
+@Composable
+private fun OaScreen(data: LawData.Bundle, voice: EnVoice, back: () -> Unit) {
+    var tab by remember { mutableIntStateOf(0) }  // 0 USPTO 标准句，1 中国审查意见，2 答复美国审查意见
+    Column(Modifier.fillMaxSize()) {
+        Header(tr("审查意见英文表达", "Office action English"), back)
+        Row(Modifier.padding(horizontal = 16.dp).horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf(tr("USPTO 标准句", "USPTO form ¶"), tr("中国审查意见", "CN Office actions"), tr("答复美国审查意见", "Replying in the US")).forEachIndexed { k, label ->
+                val on = k == tab
+                Text(label, color = if (on) onAcc() else C.Text, fontSize = 14.sp,
+                    modifier = Modifier.background(if (on) C.Gold else C.Surface, RoundedCornerShape(12.dp)).press { tab = k }.padding(horizontal = 14.dp, vertical = 8.dp))
+            }
+        }
+        LazyColumn(Modifier.fillMaxSize().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            when (tab) {
+                0 -> {
+                    item { Caption(tr("MPEP 表格段落（Form Paragraphs）原句，USPTO 审查员写审查意见时直接套用；[1] [2] 是要填的空。点段落看中文。",
+                        "Verbatim MPEP form paragraphs; [1] [2] are blanks the examiner fills in."), Modifier.padding(4.dp)) }
+                    data.oa.us.forEach { g ->
+                        item(key = "g" + g.name) { SectionTitle(tr(g.nameZh, g.name)) }
+                        g.items.forEachIndexed { k, it ->
+                            item(key = g.name + k) {
+                                Tile {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text("¶ ${it.fp}", color = C.Gold, fontSize = 12.sp, fontFamily = FontFamily.Monospace)
+                                        Spacer(Modifier.width(8.dp))
+                                        Text(tr(it.titleZh, it.title), color = C.Text, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                                    }
+                                    Flip(LawData.Para(it.en, it.zh), tr("MPEP 原文", "MPEP text"), tr("Claude 译", "Chinese by Claude"), size = 15, voice = voice)
+                                    if (it.note.isNotBlank()) Caption(it.note)
+                                }
+                            }
+                        }
+                    }
+                }
+                1 -> {
+                    item { Caption(tr("按中国审查意见通知书的常见写法整理（不是官方模板原文），英文用词与专利法官方英译一致。默认英文，点一下看中文。",
+                        "Typical CN Office action sentences (not an official template), with English aligned to the official translation of the Patent Law."), Modifier.padding(4.dp)) }
+                    data.oa.cn.forEach { g ->
+                        item(key = "c" + g.name) { SectionTitle(tr(g.nameZh, g.name)) }
+                        g.items.forEachIndexed { k, it ->
+                            item(key = "c" + g.name + k) {
+                                Tile {
+                                    val src = if (it.law.isNotBlank()) tr("专利法第 ${it.law.substringAfter(':')} 条官方英译", "Official translation, Art. ${it.law.substringAfter(':')}") else tr("Claude 英译", "English by Claude")
+                                    Flip(LawData.Para(it.en, it.zh), src, if (it.law.isNotBlank()) tr("专利法原文", "Patent Law") else tr("常见写法", "Typical wording"), size = 15, voice = voice)
+                                }
+                            }
+                        }
+                    }
+                }
+                else -> {
+                    item { Caption(tr("美国代理人答复审查意见的常用措辞（Claude 整理），帮你读懂和撰写 Response to Office Action。", "Common wording in US responses (compiled by Claude)."), Modifier.padding(4.dp)) }
+                    data.oa.reply.forEachIndexed { k, p -> item(key = "r$k") { Tile { Flip(p, tr("常用措辞", "Common wording"), tr("Claude 译", "Chinese by Claude"), size = 15, voice = voice) } } }
+                }
+            }
+            item { Spacer(Modifier.height(16.dp)) }
+        }
+    }
+}
+
 // ======================= 练习 =======================
 
 @Composable
 private fun DrillScreen(data: LawData.Bundle, voice: EnVoice, back: () -> Unit) {
-    var mode by remember { mutableIntStateOf(0) }  // 0 填空，1 中译英
+    var mode by remember { mutableIntStateOf(0) }  // 0 填空，1 中译英（术语），2 审查意见句子中译英
+    val sentences = remember { (data.glCn.units.flatMap { it.phrases } + data.oa.cn.flatMap { g -> g.items.map { LawData.Para(it.en, it.zh) } }).shuffled() }
     val pool = remember(mode) {
         if (mode == 0) data.terms.filter { Regex(Regex.escape(it.en), RegexOption.IGNORE_CASE).containsMatchIn(it.exEn) }.shuffled()
         else data.terms.shuffled()
@@ -488,14 +587,27 @@ private fun DrillScreen(data: LawData.Bundle, voice: EnVoice, back: () -> Unit) 
     Column(Modifier.fillMaxSize()) {
         Header(tr("术语练习", "Term drills"), back) { Caption("$right / $done") }
         Row(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            listOf(tr("法条填空", "Cloze"), tr("中译英", "ZH → EN")).forEachIndexed { k, label ->
+            listOf(tr("法条填空", "Cloze"), tr("术语中译英", "Terms ZH → EN"), tr("审查意见句子", "OA sentences")).forEachIndexed { k, label ->
                 val on = k == mode
                 Text(label, color = if (on) onAcc() else C.Text, fontSize = 14.sp,
                     modifier = Modifier.background(if (on) C.Gold else C.Surface, RoundedCornerShape(12.dp)).press { mode = k }.padding(horizontal = 14.dp, vertical = 8.dp))
             }
         }
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            if (mode == 0) {
+            if (mode == 2) {
+                val sp = sentences[i % sentences.size]
+                Caption(tr("看中文，先自己说出英文，再点开对照。", "Say it in English first, then reveal."))
+                Tile(strong = true, onClick = { if (!shown) { shown = true; done++ } }) {
+                    Text(sp.zh, color = C.Text, fontSize = 17.sp, lineHeight = 26.sp)
+                    Spacer(Modifier.height(8.dp))
+                    if (shown) Text(sp.en, color = C.Gold, fontSize = 16.sp, lineHeight = 24.sp, fontFamily = FontFamily.Serif)
+                    else Caption(tr("点击显示参考英文", "Tap to reveal"))
+                }
+                if (shown) Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Btn(tr("朗读", "Read aloud"), modifier = Modifier.weight(1f)) { voice.speak(sp.en, rate = 0.9f) }
+                    Btn(tr("下一句", "Next"), primary = true, modifier = Modifier.weight(1f)) { i++ }
+                }
+            } else if (mode == 0) {
                 Caption(tr("这是法条原句，空格处应填哪个术语？", "A real statutory sentence — which term fills the blank?"))
                 val blanked = Regex(Regex.escape(t.en), RegexOption.IGNORE_CASE).replaceFirst(t.exEn, "_____")
                 Tile(strong = true) {
@@ -524,7 +636,7 @@ private fun DrillScreen(data: LawData.Bundle, voice: EnVoice, back: () -> Unit) 
                     Btn(tr("想起来了", "Got it"), primary = true, modifier = Modifier.weight(1f)) { right++; i++ }
                 }
             }
-            if (picked != null || (mode == 1 && shown)) {
+            if (mode != 2 && (picked != null || (mode == 1 && shown))) {
                 Tile {
                     Text("${t.en} · ${t.zh}", color = C.Text, fontSize = 14.sp)
                     Caption(t.noteZh)
