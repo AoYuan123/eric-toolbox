@@ -174,8 +174,8 @@ GL_US = [
               "“本领域普通技术人员也是具有普通创造力的人，而不是机器人。”"),
          ],
          notes=[
-             ("Note the contrast: China Part II Ch. 4 § 2.4 says the person skilled in the art “不具有创造能力” (has no creativity). KSR says the US person has “ordinary creativity”. In practice this makes US obviousness somewhat easier to establish for routine variations.",
-              "注意对比：中国第二部分第四章 2.4 节说本领域技术人员“不具有创造能力”；KSR 说美国的技术人员有“普通创造力”。实际效果是：对常规变型，美国更容易认定显而易见。"),
+             ("Note the contrast: China Part II Ch. 4 § 2.4 says the person skilled in the art “不具有创造能力” (has no creativity). KSR says the US person has “ordinary creativity”. It is commonly said that this makes obviousness easier to establish in the US for routine variations.",
+              "注意对比：中国第二部分第四章 2.4 节说本领域技术人员“不具有创造能力”；KSR 说美国的技术人员有“普通创造力”。一般认为，这使美国对常规变型更容易认定显而易见。"),
              ("Terms: US “person having ordinary skill in the art” (PHOSITA/POSA); China’s official law translation uses “person skilled in the relevant field of technology”; “person skilled in the art” is the usual short form.",
               "术语：美国 person having ordinary skill in the art（简称 PHOSITA/POSA）；中国专利法官方英译用 person skilled in the relevant field of technology；日常写作常用 person skilled in the art。"),
          ]),
