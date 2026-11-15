@@ -148,7 +148,8 @@ private fun GoldMain(onBack: () -> Unit, onSettings: () -> Unit, onHold: (GoldPa
         PriceHeader(product, snap, GoldModule.jcjPrev(ctx))
         LowCards(product, lows, snap)
         CompareRow(product, snap, compareOpen) { compareOpen = !compareOpen }
-        NewsCard(news, newsStatus, snap?.market?.price) { runCatching { GoldModule.refreshNews(ctx, force = true) } }
+        // 手动刷新消息面：refreshNews 是挂起函数，必须套在 scope.launch 里（不能直接放在点击回调里）
+        NewsCard(news, newsStatus, snap?.market?.price) { scope.launch { runCatching { GoldModule.refreshNews(ctx, force = true) } } }
 
         // 走势
         Column(Modifier.fillMaxWidth().background(C.Surface, RoundedCornerShape(18.dp)).padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
