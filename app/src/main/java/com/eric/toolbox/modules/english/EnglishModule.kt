@@ -247,9 +247,9 @@ private fun EnHome(isTab: Boolean, onBack: () -> Unit, go: (String) -> Unit) {
                     Icon(Icons.Outlined.RecordVoiceOver, null, tint = C.Text, modifier = Modifier.size(22.dp))
                     Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f)) {
-                        Text(tr("雅思场景", "IELTS by scenario"), color = C.Text, fontSize = 15.sp, fontWeight = FontWeight.Medium)
-                        Caption(tr("18 个场景 · 点菜 / 入住 / 汇报 / 开会 · 对话 + 场景词 + 语块",
-                            "18 scenarios · dialogue, words and chunks"))
+                        Text(tr("雅思", "IELTS"), color = C.Text, fontSize = 15.sp, fontWeight = FontWeight.Medium)
+                        Caption(tr("30 个场景 + 雅思全词库 5038 词 · 分单元背，学完就测",
+                            "30 scenarios + the full 5038-word IELTS list, by unit"))
                     }
                     Text("›", color = C.Muted, fontSize = 22.sp)
                 }

@@ -4,7 +4,7 @@ package com.eric.toolbox.modules.english.ielts
 object IeltsWork {
 
     // by lazy：单例按声明顺序初始化，直接写 = listOf(...) 会读到还没初始化的场景字段
-    val list: List<Scene> by lazy { listOf(smalltalk, report, meeting, call, negotiate, interview) }
+    val list: List<Scene> by lazy { listOf(smalltalk, report, meeting, call, negotiate, interview, onboarding, email, client, appraisal) }
 
     private val smalltalk = Scene(
         id = "smalltalk", zh = "职场日常寒暄", en = "Office small talk", cat = Cat.WORK,
@@ -357,6 +357,242 @@ object IeltsWork {
             Qs("What do you think makes a good interview?", "你觉得什么样的面试算好？", 3, "双向了解 + 具体例子 + 坦诚（包括不足）"),
             Qs("Describe a skill you would like to improve.", "描述一项你想提升的技能。", 2, "什么技能 + 为什么重要 + 现在怎么练 + 目标"),
             Qs("Is a university degree still important for getting a job?", "学历对找工作还重要吗？", 3, "仍然重要（筛选门槛）+ 但技能/项目更关键 + 行业差异"),
+        ),
+    )
+
+    private val onboarding = Scene(
+        id = "onboarding", zh = "入职第一天", en = "First day at work", cat = Cat.WORK,
+        goal = "自我介绍、问流程、认识团队、问清期望",
+        lines = listOf(
+            Ln(
+                a = "You must be the new patent engineer — welcome aboard.",
+                aZh = "你一定是新来的专利工程师吧，欢迎加入。",
+                b = "That's me. Thanks — I'm looking forward to getting stuck in.",
+                bZh = "是我。谢谢，我很期待尽快上手。",
+                tip = "looking forward to + doing（不是 to do）；get stuck in = 撸起袖子干活，英式很常用",
+            ),
+            Ln(
+                a = "Let me show you round and introduce you to the team.",
+                aZh = "我带你转转，介绍一下团队。",
+                b = "That'd be great. Who should I go to about IT access?",
+                bZh = "太好了。电脑和系统权限我该找谁？",
+                tip = "go to sb about sth = 找某人办某事，比 ask sb for 更职场",
+            ),
+            Ln(
+                a = "Anything you need, just give me a shout.",
+                aZh = "有什么需要就叫我。",
+                b = "Will do. Is there a handbook for how cases get assigned?",
+                bZh = "好的。有说明案子怎么分配的手册吗？",
+                tip = "give sb a shout = 打个招呼/叫我；Will do 是最短的「好，我会的」",
+            ),
+            Ln(
+                a = "Your first review is after three months.",
+                aZh = "第一次考核在三个月后。",
+                b = "Good to know — what does a good first three months look like?",
+                bZh = "了解了。做得好的头三个月是什么样的？",
+                tip = "问「什么样算好」而不是「我该做什么」，直接把标准问出来，考核时不吃亏",
+            ),
+        ),
+        words = listOf(
+            Wd("welcome aboard", "欢迎加入", "welcome aboard", "Welcome aboard — your desk is by the window.", "欢迎加入，你的位子在窗边。"),
+            Wd("get stuck in", "立刻上手干活", "get stuck in", "She got stuck in on day one.", "她第一天就上手了。"),
+            Wd("show sb round", "带某人转转", "show you round", "I'll show you round after lunch.", "午饭后我带你转转。"),
+            Wd("go to sb about", "找某人办某事", "go to HR about it", "Go to Priya about expenses.", "报销的事找普里娅。"),
+            Wd("give sb a shout", "叫一声 / 招呼一下", "give me a shout", "Give me a shout when you're free.", "你有空叫我一声。"),
+            Wd("settle in", "适应下来", "settle in quickly", "It took me a month to settle in.", "我花了一个月才适应。"),
+            Wd("induction", "入职培训", "induction session", "Induction is on Monday morning.", "入职培训在周一上午。"),
+            Wd("buddy", "带你的老同事", "your buddy", "Your buddy will walk you through the tools.", "带你的同事会教你用这些工具。"),
+            Wd("line manager", "直属上级", "my line manager", "My line manager signs off holidays.", "我的直属上级批假。"),
+            Wd("sign off", "批准", "sign off on sth", "Who signs off on the budget?", "预算谁批？"),
+        ),
+        chunks = listOf(
+            Ck("自我介绍", "I've just joined the… team.", "只说部门 + 职责，别背简历"),
+            Ck("表达期待", "I'm looking forward to getting stuck in.", "比 I will work hard 自然得多"),
+            Ck("问流程", "Who should I go to about…?", "把「找谁」问清楚，省一周时间"),
+            Ck("问期望", "What does a good first three months look like?", "把模糊的期望问成具体标准"),
+            Ck("收尾", "Thanks for showing me round.", "第一天结束对带你的人说一句，关系立刻近"),
+        ),
+        asks = listOf(
+            Qs("Describe your first day at a new job or school.", "描述你到新工作/新学校的第一天。", 2, "时间地点 + 见了谁 + 做了什么 + 当时的感受"),
+            Qs("What helps a new employee settle in quickly?", "什么能帮新员工快速融入？", 3, "有人带（buddy）+ 明确期望 + 早期小任务建立信心"),
+            Qs("Is it important to socialise with colleagues?", "和同事社交重要吗？", 3, "重要（信任、信息流动）+ 但要界限 + 线上团队怎么替代"),
+        ),
+    )
+
+    private val email = Scene(
+        id = "email", zh = "邮件与消息", en = "Email & messages", cat = Cat.WORK,
+        goal = "催进度、拒绝、确认、抄送、说明延迟",
+        lines = listOf(
+            Ln(
+                a = "Did you get my email about the deadline?",
+                aZh = "你收到我那封关于截止日的邮件了吗？",
+                b = "I did — sorry, I meant to reply yesterday but it slipped.",
+                bZh = "收到了。抱歉，我昨天想回但忘了。",
+                tip = "it slipped (my mind) = 忘了，比 I forgot 更轻，职场里更常用",
+            ),
+            Ln(
+                a = "Can we still hit Friday?",
+                aZh = "周五还能赶上吗？",
+                b = "Friday's tight. Could we agree Monday, or shall I ask the client for an extension?",
+                bZh = "周五很紧。能不能定周一，或者我去跟客户申请延期？",
+                tip = "tight 表示紧但没崩；给两个选项让对方挑，比直接说做不到好",
+            ),
+            Ln(
+                a = "Just copy me in on the reply.",
+                aZh = "回的时候抄我一份。",
+                b = "Sure. Do you want me to loop in the client as well?",
+                bZh = "好。需要把客户也拉进来吗？",
+                tip = "copy sb in / loop sb in 都是「抄送/拉进对话」；CC 作动词不地道",
+            ),
+            Ln(
+                a = "I'll leave it with you then.",
+                aZh = "那就交给你了。",
+                b = "I'll send a short summary by end of play today.",
+                bZh = "我今天下班前发一份简短汇总。",
+                tip = "end of play / EOD = 今天下班前；给一个明确交付时间，别只说 will do",
+            ),
+        ),
+        words = listOf(
+            Wd("follow up", "跟进", "follow up on my email", "I'm following up on my last message.", "我在跟进上一封邮件。"),
+            Wd("chase", "催", "chase sb for sth", "I'll chase them for an answer.", "我去催他们给答复。"),
+            Wd("loop in", "把某人拉进对话", "loop in the client", "Let me loop in legal.", "我把法务拉进来。"),
+            Wd("copy in", "抄送", "copy me in", "Copy me in on anything to the client.", "发给客户的都抄我。"),
+            Wd("attached", "附件是", "please find attached", "Please find the draft attached.", "草稿见附件。"),
+            Wd("for your reference", "供参考", "for your reference (FYI)", "FYI, the numbers changed.", "供参考，数字变了。"),
+            Wd("action", "请对方做的事", "action required", "Action required: approve by Thursday.", "需你处理：周四前批准。"),
+            Wd("slipped", "（事情）忘了/漏了", "it slipped my mind", "Sorry, it slipped.", "抱歉，我忘了。"),
+            Wd("extension", "延期", "ask for an extension", "We asked for a two-day extension.", "我们申请延期两天。"),
+            Wd("end of play", "今天下班前", "by end of play", "I'll confirm by end of play.", "我下班前确认。"),
+        ),
+        chunks = listOf(
+            Ck("催但不失礼", "Just following up on my last email.", "Just 一开头，压力全给到对方又不得罪"),
+            Ck("说明延迟", "It's taking longer than expected because…", "给原因，别只说道歉"),
+            Ck("给选项", "Could we agree Monday, or shall I ask for an extension?", "两选一，对方一定会回一个"),
+            Ck("抄送", "I've copied in…", "邮件正文里说明抄了谁，省得猜"),
+            Ck("收尾", "Let me know if that works.", "比 Please reply 礼貌且明确要回复"),
+        ),
+        asks = listOf(
+            Qs("Do you prefer email or messaging at work?", "工作时你更喜欢邮件还是即时消息？", 3, "邮件：留痕、正式；消息：快；按事情重要性区分"),
+            Qs("Describe a time you had to chase someone.", "描述一次你催别人的经历。", 2, "什么事 + 怎么开口 + 对方反应 + 结果"),
+            Qs("Are long emails a problem?", "长邮件是问题吗？", 3, "是：没人读完 + 结论淹没；做法：先结论、要点列条、附件承载细节"),
+        ),
+    )
+
+    private val client = Scene(
+        id = "client", zh = "客户接待", en = "Meeting a client", cat = Cat.WORK,
+        goal = "寒暄、确认议题、谈时间与范围、约定后续",
+        lines = listOf(
+            Ln(
+                a = "Thanks for coming in — how was the journey?",
+                aZh = "谢谢过来，路上还顺利吗？",
+                b = "Not bad at all, thanks. The office is easy to find.",
+                bZh = "挺顺的，谢谢。你们办公室很好找。",
+                tip = "Not bad at all 是英式「挺好的」，比 Very good 自然；寒暄一句就够，别拖",
+            ),
+            Ln(
+                a = "Shall we start with what you're hoping to get out of today?",
+                aZh = "我们先说说你今天想得到什么结果？",
+                b = "Yes — mainly timelines and cost, and whether the scope can flex.",
+                bZh = "好。主要是时间表和费用，还有范围能不能调整。",
+                tip = "get out of today = 今天想拿到什么；flex 是 adjust 的职场简说",
+            ),
+            Ln(
+                a = "We can probably turn it round in six weeks.",
+                aZh = "大概六周能做完。",
+                b = "That works for us, provided the review stage is included.",
+                bZh = "那可以，只要包含复审环节。",
+                tip = "provided (that) = 只要，比 if 更强调条件；turn sth round = 完成交付",
+            ),
+            Ln(
+                a = "I'll put that in writing.",
+                aZh = "我会书面确认。",
+                b = "Perfect. Could you also send the slides? I'll share them internally.",
+                bZh = "太好了。能也把幻灯片发我吗？我在内部同步一下。",
+                tip = "把「要材料」说成「我要内部同步」，理由充分，对方不会拒",
+            ),
+        ),
+        words = listOf(
+            Wd("scope", "工作范围", "scope creep", "Scope creep is what blows the budget.", "范围不断加码是超预算的元凶。"),
+            Wd("timeline", "时间表", "a realistic timeline", "Can we agree a timeline today?", "今天能定时间表吗？"),
+            Wd("turn sth round", "完成并交付", "turn it round in six weeks", "We can turn it round by June.", "我们六月前能交付。"),
+            Wd("provided", "只要", "provided that…", "Provided the data arrives, we'll start Monday.", "只要数据到了，我们周一开始。"),
+            Wd("deliverable", "交付物", "key deliverables", "The deliverables are listed on page two.", "交付物列在第二页。"),
+            Wd("milestone", "阶段节点", "a payment milestone", "Payment is tied to milestones.", "付款和节点挂钩。"),
+            Wd("flex", "可调整", "the scope can flex", "The dates can flex by a week.", "日期可以浮动一周。"),
+            Wd("sign off", "签字确认", "sign off the design", "Who signs off the final design?", "最终设计谁签字？"),
+            Wd("in writing", "书面形式", "put it in writing", "I'll put the terms in writing.", "我会把条款书面写清。"),
+            Wd("point of contact", "对接人", "your point of contact", "I'll be your point of contact.", "我来对接你。"),
+        ),
+        chunks = listOf(
+            Ck("开场寒暄", "How was the journey?", "一句就够，重点在正事"),
+            Ck("定议题", "What are you hoping to get out of today?", "让对方先说目标，后面的谈都围绕它"),
+            Ck("给条件", "That works, provided…", "答应 + 条件，一次说完"),
+            Ck("要材料", "Could you send the slides? I'll share them internally.", "给出用途，对方更愿意给"),
+            Ck("收尾", "I'll send a short recap today.", "recap 邮件是专业度的分水岭"),
+        ),
+        asks = listOf(
+            Qs("Is it important to build a personal relationship with clients?", "和客户建立私人关系重要吗？", 3, "重要（信任、容错）+ 但专业交付是前提 + 文化差异"),
+            Qs("Describe a time you dealt with a difficult client.", "描述一次处理难缠客户的经历。", 2, "什么要求 + 你怎么回应 + 结果 + 学到什么"),
+            Qs("Should companies always say yes to clients?", "公司应该总是答应客户吗？", 3, "不该：范围失控 + 团队崩溃；做法：说 no 但给替代方案"),
+        ),
+    )
+
+    private val appraisal = Scene(
+        id = "appraisal", zh = "绩效面谈", en = "Performance review", cat = Cat.WORK,
+        goal = "讲成果、谈目标、提要求、约定衡量标准",
+        lines = listOf(
+            Ln(
+                a = "How do you think the year went?",
+                aZh = "你觉得这一年怎么样？",
+                b = "On balance, well — we cleared the backlog and cut turnaround by a third.",
+                bZh = "总的来说不错。我们清掉了积压，周期缩短了三分之一。",
+                tip = "on balance = 总的来说；成果一定要带数字，形容词没有说服力",
+            ),
+            Ln(
+                a = "What would you like to do more of?",
+                aZh = "你希望多做一些什么？",
+                b = "I'd like to take the lead on client work rather than just support it.",
+                bZh = "我想主导客户项目，而不只是配合。",
+                tip = "take the lead on = 牵头；rather than just… 把差距说清楚",
+            ),
+            Ln(
+                a = "That's fair. What support would you need?",
+                aZh = "这合理。你需要什么支持？",
+                b = "Mentoring on pitching, and a bit more visibility with the partners.",
+                bZh = "在提案上有人带，还有多在合伙人面前露脸。",
+                tip = "visibility 是职场关键词：不是「拍马屁」，是「让决策者知道你在做什么」",
+            ),
+            Ln(
+                a = "Let's set that as a goal for next quarter.",
+                aZh = "那就把它定为下季度的目标。",
+                b = "Could we agree some concrete measures, so we both know whether it's working?",
+                bZh = "能不能定几个具体指标，这样我们都清楚有没有效果？",
+                tip = "measures = 衡量指标；把口头目标变成可验证的，是面谈最值钱的一句话",
+            ),
+        ),
+        words = listOf(
+            Wd("on balance", "总的来说", "on balance", "On balance, it was a good year.", "总的来说，这一年不错。"),
+            Wd("take the lead", "牵头", "take the lead on", "She took the lead on the merger.", "她牵头了那桩并购。"),
+            Wd("turnaround", "周转时间", "cut the turnaround", "We halved the turnaround.", "我们把周期砍了一半。"),
+            Wd("visibility", "被看见 / 曝光度", "gain visibility", "Present at the quarterly review for visibility.", "在季度会上讲，增加曝光。"),
+            Wd("stretch goal", "有挑战的目标", "a stretch goal", "That's a stretch goal, not a promise.", "那是有挑战的目标，不是承诺。"),
+            Wd("mentoring", "带教", "mentoring on pitching", "I get mentoring from a partner.", "有位合伙人带我。"),
+            Wd("concrete", "具体的", "concrete measures", "Let's agree concrete measures.", "我们定几个具体指标吧。"),
+            Wd("own", "负责 / 担起来", "own the outcome", "You own the outcome, not the tasks.", "你负责结果，不只是任务。"),
+            Wd("step up", "顶上来", "step up this year", "He stepped up when it mattered.", "关键时刻他顶住了。"),
+            Wd("development area", "待提升项", "a development area", "Delegation is my development area.", "授权是我要提升的地方。"),
+        ),
+        chunks = listOf(
+            Ck("开场定调", "On balance, a good year.", "先给判断，再给证据"),
+            Ck("用数字说话", "We cut turnaround by a third.", "把成果换算成比例或金额"),
+            Ck("提诉求", "I'd like to take the lead on…", "说方向，不说「我想升职」"),
+            Ck("要支持", "What I'd need is…", "把要求说成条件，不像是抱怨"),
+            Ck("锁指标", "Could we agree concrete measures?", "面谈结束前一定要落地这句"),
+        ),
+        asks = listOf(
+            Qs("How should performance be measured?", "绩效该怎么衡量？", 3, "结果指标 + 过程行为 + 同事反馈；避免只看工时"),
+            Qs("Describe a piece of feedback that helped you.", "描述一条对你有帮助的反馈。", 2, "谁说的 + 具体内容 + 你怎么改 + 结果"),
+            Qs("Is annual review still useful?", "年度考核还有用吗？", 3, "有用（正式对话机会）+ 但太稀疏；更好是季度 + 即时反馈"),
         ),
     )
 }

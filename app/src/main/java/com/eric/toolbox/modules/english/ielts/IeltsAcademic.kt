@@ -4,7 +4,7 @@ package com.eric.toolbox.modules.english.ielts
 object IeltsAcademic {
 
     // by lazy：单例按声明顺序初始化，直接写 = listOf(...) 会读到还没初始化的场景字段
-    val list: List<Scene> by lazy { listOf(enrol, supervisor, seminar, present, library, feedback) }
+    val list: List<Scene> by lazy { listOf(enrol, supervisor, seminar, present, library, feedback, application, lab, conference, defence) }
 
     private val enrol = Scene(
         id = "enrol", zh = "校园注册与选课", en = "Campus enrolment", cat = Cat.ACADEMIC,
@@ -357,6 +357,242 @@ object IeltsAcademic {
             Qs("How do you feel about getting criticism?", "你怎么看待被批评？", 3, "不舒服但有用 + 区分人身与工作 + 具体做法（先听完再问）"),
             Qs("Describe a piece of work you improved after feedback.", "描述一次你根据反馈改进的作品。", 2, "什么作品 + 反馈是什么 + 怎么改 + 结果"),
             Qs("Should students grade their teachers?", "学生应该给老师打分吗？", 3, "应该（改进教学）+ 但要防报复性打分 + 用匿名和多项指标"),
+        ),
+    )
+
+    private val application = Scene(
+        id = "application", zh = "申请与文书", en = "Applications & statements", cat = Cat.ACADEMIC,
+        goal = "问申请要求、讲研究兴趣、套磁、说明资金来源",
+        lines = listOf(
+            Ln(
+                a = "What made you choose this programme?",
+                aZh = "你为什么选这个项目？",
+                b = "Two of the modules map directly onto what I do — the rest would fill gaps I keep running into.",
+                bZh = "有两门课正好对口我现在做的，剩下的能补上我总碰到的短板。",
+                tip = "map onto = 对应上；fill gaps 比 I want to learn 具体得多，面试官爱听",
+            ),
+            Ln(
+                a = "Do you have a research topic in mind?",
+                aZh = "你有想做的课题吗？",
+                b = "Something around claim construction — though I'd want to narrow it down with a supervisor.",
+                bZh = "大概是权利要求解释这一块，不过我希望跟导师一起收窄。",
+                tip = "narrow it down with… 既显示有方向，又显示愿意听指导，比装懂安全",
+            ),
+            Ln(
+                a = "How do you plan to fund it?",
+                aZh = "你打算怎么解决费用？",
+                b = "Partly savings, partly an employer contribution — I'm hoping to hear about scholarships too.",
+                bZh = "一部分存款，一部分公司出，我也在等奖学金结果。",
+                tip = "partly… partly… 是很干净的结构；主动提奖学金，说明你做过功课",
+            ),
+            Ln(
+                a = "Is there anything you'd like to ask us?",
+                aZh = "你有什么想问我们的吗？",
+                b = "How much contact do students typically get with supervisors in the first term?",
+                bZh = "第一学期学生一般能和导师见几次？",
+                tip = "问具体机制（频次、形式）而不是问「这个项目好不好」，后者显得没准备",
+            ),
+        ),
+        words = listOf(
+            Wd("personal statement", "个人陈述", "draft a personal statement", "The personal statement caps at 4,000 characters.", "个人陈述限四千字符。"),
+            Wd("map onto", "与……对应", "map onto the modules", "My work maps onto the second term.", "我的工作和第二学期课程对口。"),
+            Wd("fill a gap", "补上短板", "fill gaps in my background", "The course fills a gap in my statistics.", "这门课补了我统计的短板。"),
+            Wd("narrow down", "收窄", "narrow it down", "I'd like to narrow it down with a supervisor.", "我想和导师一起收窄。"),
+            Wd("supervisor", "导师", "prospective supervisor", "I emailed a prospective supervisor in June.", "我六月给意向导师发过邮件。"),
+            Wd("scholarship", "奖学金", "apply for a scholarship", "The scholarship covers fees only.", "奖学金只覆盖学费。"),
+            Wd("reference", "推荐信", "two academic references", "They require two academic references.", "他们要求两封学术推荐信。"),
+            Wd("transcript", "成绩单", "an official transcript", "Upload an official transcript.", "上传官方成绩单。"),
+            Wd("deadline", "截止日期", "the application deadline", "The deadline is 15 January.", "截止日期是一月十五号。"),
+            Wd("offer", "录取", "a conditional offer", "I got a conditional offer.", "我拿到了有条件录取。"),
+        ),
+        chunks = listOf(
+            Ck("说动机", "Two of the modules map directly onto…", "具体到课程名，别谈"热爱学术""),
+            Ck("说方向但留余地", "Something around…, though I'd want to narrow it down.", "有方向 + 愿听指导，最稳"),
+            Ck("说资金", "Partly savings, partly…", "结构清楚，不卑不亢"),
+            Ck("反问", "How much contact do students get with…?", "问机制，不问评价"),
+            Ck("套磁收尾", "Would you be open to a short call?", "给一个低成本的下一步"),
+        ),
+        asks = listOf(
+            Qs("Why do you want to study abroad?", "你为什么想出国读书？", 3, "专业资源 + 视角 + 职业路径；别只说"开阔眼界""),
+            Qs("Describe a time you had to meet a tight deadline.", "描述一次赶死线的经历。", 2, "什么任务 + 多紧 + 怎么排优先级 + 结果"),
+            Qs("Should universities interview every applicant?", "大学应该面试每个申请者吗？", 3, "面试能看动机和表达 + 但成本高、易受偏见影响 + 折中（抽查 + 视频）"),
+        ),
+    )
+
+    private val lab = Scene(
+        id = "lab", zh = "实验与数据", en = "Lab work & data", cat = Cat.ACADEMIC,
+        goal = "报结果、说异常、讨论误差、安排下一步",
+        lines = listOf(
+            Ln(
+                a = "How did the second run come out?",
+                aZh = "第二轮跑出来怎么样？",
+                b = "Broadly consistent, though two samples drifted outside the expected range.",
+                bZh = "大体一致，不过有两个样本漂出了预期范围。",
+                tip = "broadly consistent / drifted outside the range 是描述数据最稳的说法",
+            ),
+            Ln(
+                a = "Any idea what caused it?",
+                aZh = "知道是什么原因吗？",
+                b = "Most likely pipetting error — I'd rather repeat those two than adjust the numbers.",
+                bZh = "很可能是移液误差。我宁愿重做那两个，也不想改数字。",
+                tip = "I'd rather… than… 表明学术诚信立场，这句话在导师面前很加分",
+            ),
+            Ln(
+                a = "Do we need to re-run the whole batch?",
+                aZh = "需要整批重跑吗？",
+                b = "I don't think so. Re-running the two should be enough to confirm the trend.",
+                bZh = "我觉得不用。重跑那两个应该就够确认趋势了。",
+                tip = "I don't think so 后必须给理由，否则听起来像偷懒",
+            ),
+            Ln(
+                a = "Can you get the plots to me by Thursday?",
+                aZh = "周四能把图给我吗？",
+                b = "Yes — I'll send a draft Wednesday so there's time to change the axes if needed.",
+                bZh = "可以。我周三先发草稿，需要改坐标轴还来得及。",
+                tip = "提前交草稿 = 给自己留修改时间，是实验室里很实用的习惯",
+            ),
+        ),
+        words = listOf(
+            Wd("run", "（实验）一次运行", "the second run", "The third run gave the same result.", "第三次跑结果一样。"),
+            Wd("drift", "漂移 / 偏离", "drift outside the range", "Two samples drifted.", "两个样本偏离了。"),
+            Wd("replicate", "重复实验", "three replicates", "We did three replicates.", "我们做了三次重复。"),
+            Wd("control", "对照组", "a negative control", "Did you include a negative control?", "你设阴性对照了吗？"),
+            Wd("error bar", "误差棒", "add error bars", "The plot needs error bars.", "图上要加误差棒。"),
+            Wd("outlier", "异常值", "remove an outlier", "That point looks like an outlier.", "那个点像异常值。"),
+            Wd("calibrate", "校准", "calibrate the instrument", "Calibrate it before each session.", "每次实验前校准。"),
+            Wd("protocol", "实验规程", "follow the protocol", "Follow the protocol exactly.", "严格按规程做。"),
+            Wd("baseline", "基线", "establish a baseline", "We need a baseline first.", "得先有基线。"),
+            Wd("reproducible", "可复现的", "reproducible results", "The result is reproducible.", "这个结果可复现。"),
+        ),
+        chunks = listOf(
+            Ck("报结果", "Broadly consistent, though…", "先给结论，再给例外"),
+            Ck("说异常", "Two samples drifted outside the expected range.", "用范围和偏移描述，不用 wrong"),
+            Ck("表态", "I'd rather repeat it than adjust the numbers.", "诚信立场一句话说清"),
+            Ck("定下一步", "Re-running the two should be enough to…", "给最小必要动作，别一上来就整批重做"),
+            Ck("交期", "I'll send a draft on Wednesday.", "草稿换时间，避免硬碰 deadline"),
+        ),
+        asks = listOf(
+            Qs("Do you enjoy practical work?", "你喜欢动手做实验吗？", 1, "态度 + 具体做什么 + 一次成功或失败的经历"),
+            Qs("Describe a time an experiment did not work.", "描述一次实验失败。", 2, "什么实验 + 怎么发现的 + 排查过程 + 最后结论"),
+            Qs("How important is it to report failed results?", "报告失败结果有多重要？", 3, "避免重复踩坑 + 学术诚信 + 但发表机制不利，需要改变"),
+        ),
+    )
+
+    private val conference = Scene(
+        id = "conference", zh = "学术会议", en = "Conferences", cat = Cat.ACADEMIC,
+        goal = "自我介绍、提问、换名片、会后跟进",
+        lines = listOf(
+            Ln(
+                a = "Is anyone sitting here?",
+                aZh = "这儿有人吗？",
+                b = "Go ahead. Are you here for the whole conference or just today?",
+                bZh = "请坐。你是全程参加还是只来今天？",
+                tip = "Go ahead 是最自然的"请便"；用问题开场比自我介绍不突兀",
+            ),
+            Ln(
+                a = "I work on claim drafting — mostly biotech.",
+                aZh = "我做权利要求撰写，主要是生物领域。",
+                b = "Interesting, we're looking at something similar from the litigation side.",
+                bZh = "有意思，我们从诉讼角度在看类似的问题。",
+                tip = "介绍自己用 I work on + 具体事，比职位名有用；接话用 from the … side 找交集",
+            ),
+            Ln(
+                a = "That's a good question — I'm not sure the data supports it yet.",
+                aZh = "这是个好问题，我不确定数据是否已经支持。",
+                b = "Fair enough. Would you mind if I followed up by email?",
+                bZh = "理解。我方便之后发邮件跟进吗？",
+                tip = "Would you mind if I… 是最不冒犯的请求；对方拒绝也不尴尬",
+            ),
+            Ln(
+                a = "Let's swap details.",
+                aZh = "我们交换一下联系方式。",
+                b = "Sure — I'll drop you a line next week with the paper we discussed.",
+                bZh = "好。我下周把聊到的那篇论文发你。",
+                tip = "drop sb a line = 发个消息；说清"下周发什么"，对方才会记得你",
+            ),
+        ),
+        words = listOf(
+            Wd("session", "场次", "the morning session", "I'm speaking in the second session.", "我在第二场讲。"),
+            Wd("keynote", "主旨演讲", "the keynote talk", "The keynote was packed.", "主旨演讲挤满了人。"),
+            Wd("poster", "海报（展示）", "the poster session", "Come by my poster later.", "待会儿来我海报看看。"),
+            Wd("proceedings", "会议论文集", "published in the proceedings", "It's in the proceedings.", "收录在论文集里。"),
+            Wd("follow up", "会后跟进", "follow up by email", "I'll follow up next week.", "我下周邮件跟进。"),
+            Wd("swap details", "交换联系方式", "let's swap details", "Let's swap details before we go.", "走之前交换下联系方式。"),
+            Wd("drop sb a line", "给某人发消息", "drop me a line", "Drop me a line any time.", "随时给我发消息。"),
+            Wd("panel", "圆桌讨论", "the panel discussion", "The panel got heated.", "圆桌讨论很激烈。"),
+            Wd("off the record", "非正式地（不记录）", "off the record", "Off the record, I agree with you.", "私下说，我同意你。"),
+            Wd("common ground", "共同点", "find common ground", "We found some common ground.", "我们找到了一些共同点。"),
+        ),
+        chunks = listOf(
+            Ck("搭话", "Is anyone sitting here?", "会议里最安全的开场"),
+            Ck("介绍自己", "I work on…, mostly…", "具体事 + 细分领域，比头衔有效"),
+            Ck("找交集", "We're looking at something similar from the… side.", "把话题引到共同兴趣"),
+            Ck("请求跟进", "Would you mind if I followed up by email?", "最低冒犯度的请求"),
+            Ck("换名片", "Let's swap details.", "比 Give me your card 礼貌得多"),
+        ),
+        asks = listOf(
+            Qs("Do you enjoy conferences?", "你喜欢参加学术会议吗？", 1, "喜欢（新想法、人）+ 不喜欢（行程累）+ 怎么取舍"),
+            Qs("Describe a talk that impressed you.", "描述一次让你印象深刻的演讲。", 2, "谁讲 + 讲什么 + 哪里好（结构/证据）+ 对你的影响"),
+            Qs("Is face-to-face conferencing still needed?", "还需要线下会议吗？", 3, "需要（偶然交流、信任）+ 线上更省成本；混合模式"),
+        ),
+    )
+
+    private val defence = Scene(
+        id = "defence", zh = "论文答辩", en = "Thesis defence", cat = Cat.ACADEMIC,
+        goal = "陈述贡献、回应质疑、承认局限、说明后续",
+        lines = listOf(
+            Ln(
+                a = "What would you say is the main contribution?",
+                aZh = "你认为主要贡献是什么？",
+                b = "It gives a workable test for how far a claim can be stretched before it loses support.",
+                bZh = "它给出了一个可操作的判断标准：权利要求能推到多远还不失去支持。",
+                tip = "贡献用 gives a workable test / framework 这类可检验的说法，别用 I studied…",
+            ),
+            Ln(
+                a = "Your sample is quite small. Doesn't that undermine the conclusion?",
+                aZh = "你的样本很小，这不影响结论吗？",
+                b = "It limits how far I can generalise, but the effect is large enough to survive a smaller sample.",
+                bZh = "它限制了我能推广的范围，但效应足够大，小样本也站得住。",
+                tip = "先承认（limits how far）+ 再限定范围（but the effect is large enough），不要一口否认",
+            ),
+            Ln(
+                a = "How is this different from what Lee did in 2019?",
+                aZh = "这和李 2019 年做的有什么不同？",
+                b = "Lee looked at granted claims; I looked at applications, so the timing of the change is new.",
+                bZh = "李看的是授权后的权利要求，我看的是申请阶段，所以变化发生的时点是我新增的。",
+                tip = "对比用 looked at A; I looked at B，一句话把差别钉死，含混会显得没读过文献",
+            ),
+            Ln(
+                a = "What would you do differently?",
+                aZh = "你会怎么改？",
+                b = "I'd collect data from two more jurisdictions — that's the obvious next step.",
+                bZh = "我会再收两个法域的数据，这是最明显的下一步。",
+                tip = "承认改进空间但给出明确下一步，比说"没想过"强十倍",
+            ),
+        ),
+        words = listOf(
+            Wd("contribution", "学术贡献", "the main contribution", "State the contribution in one sentence.", "用一句话说清贡献。"),
+            Wd("generalise", "推广（结论）", "generalise the findings", "We can't generalise from one case.", "一个案例不能推广。"),
+            Wd("undermine", "削弱", "undermine the conclusion", "That doesn't undermine the finding.", "那并不削弱这个结论。"),
+            Wd("caveat", "限定条件", "with the caveat that…", "I'd add one caveat.", "我要加一个限定。"),
+            Wd("robust", "稳健的", "a robust result", "The result is robust to the choice of model.", "结果对模型选择是稳健的。"),
+            Wd("jurisdiction", "法域", "two more jurisdictions", "Data from three jurisdictions.", "三个法域的数据。"),
+            Wd("plausible", "说得通的", "a plausible explanation", "That's a plausible alternative.", "那是个说得通的替代解释。"),
+            Wd("acknowledge", "承认", "acknowledge the limitation", "I acknowledge that limitation.", "我承认这个局限。"),
+            Wd("follow-up", "后续研究", "a follow-up study", "That's a follow-up study, not this one.", "那属于后续研究。"),
+            Wd("in defence of", "为……辩护（回应质疑）", "in defence of my choice", "In defence of that choice…", "为这个选择辩护一下……"),
+        ),
+        chunks = listOf(
+            Ck("说贡献", "The main contribution is a workable test for…", "一句话，可检验"),
+            Ck("接质疑", "It limits how far I can generalise, but…", "先认再限定，别硬顶"),
+            Ck("区分文献", "Lee looked at A; I looked at B.", "用对照句把差异钉死"),
+            Ck("说下一步", "The obvious next step is…", "承认空间 + 给方向"),
+            Ck("礼貌收尾", "Thank you — that's a fair point.", "答辩里最有用的一句缓冲"),
+        ),
+        asks = listOf(
+            Qs("How do you handle criticism of your work?", "你怎么面对对自己工作的批评？", 3, "先听完 + 分清人身与内容 + 用证据回应，不情绪化"),
+            Qs("Describe a time you defended an idea.", "描述一次你为一个想法辩护。", 2, "什么想法 + 谁质疑 + 你怎么回应 + 结果"),
+            Qs("Should a thesis be judged on originality alone?", "论文应该只看原创性吗？", 3, "原创重要 + 但方法与可复现同样关键 + 领域差异"),
         ),
     )
 }

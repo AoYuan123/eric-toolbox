@@ -7,7 +7,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * 雅思场景数据体检。18 个场景 × (4 句对话 + 10 个词 + 5 条语块 + 3 个追问)，
+ * 雅思场景数据体检。30 个场景 × (4 句对话 + 10 个词 + 5 条语块 + 3 个追问)，
  * 全是手写常量，漏一个字段、场景 id 打错、场景内重复一个词，编译期都看不出来，靠这条测试兜住。
  *
  * 守的三件事：
@@ -30,9 +30,9 @@ class IeltsDataTest {
     }
 
     @Test
-    fun hasEighteenScenesSixPerCategory() {
-        assertEquals(18, IeltsData.scenes.size)
-        Cat.values().forEach { c -> assertEquals(6, IeltsData.byCat(c).size) }
+    fun hasThirtyScenesTenPerCategory() {
+        assertEquals(30, IeltsData.scenes.size)
+        Cat.values().forEach { c -> assertEquals(10, IeltsData.byCat(c).size) }
     }
 
     @Test
@@ -59,7 +59,7 @@ class IeltsDataTest {
         val keys = IeltsData.keys()
         assertEquals(IeltsData.words.size, keys.size)
         assertEquals(keys.size, keys.distinct().size)
-        assertTrue("场景词太少，检查是不是有场景没接进 IeltsData.scenes", keys.size >= 170)
+        assertTrue("场景词太少，检查是不是有场景没接进 IeltsData.scenes", keys.size >= 280)
     }
 
     @Test

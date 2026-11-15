@@ -35,17 +35,32 @@ object EnglishStore {
     }
 
     @Synchronized
-    fun put(ctx: Context, c: EnglishLogic.Card) {
-        val m = cards(ctx); val wasNew = m[c.id]?.isNew != false
-        m[c.id] = c
+    fun put(ctx: Context, c: EnglishLogic.Card) = putMany(ctx, listOf(c))
+
+    /**
+     * 批量落盘。学一个单元可能一次过 50 张卡，逐张 put 会写 50 次 cards.json，
+     * 这里合并成一次写；今日计数也按批汇总。
+     */
+    @Synchronized
+    fun putMany(ctx: Context, list: List<EnglishLogic.Card>) {
+        if (list.isEmpty()) return
+        val m = cards(ctx)
+        var newCards = 0
+        var firstReps = 0
+        list.forEach { c ->
+            val wasNew = m[c.id]?.isNew != false
+            m[c.id] = c
+            newCards++
+            if (wasNew && c.reps == 1) firstReps++
+        }
         file(ctx).writeText(EnglishLogic.listToJson(m.values))
         val today = EnglishLogic.dayNo(System.currentTimeMillis())
         val p = prefs(ctx)
         val ed = p.edit()
-        if (p.getInt("day", 0) != today) ed.putInt("day", today).putInt("new_today", 0).putInt("done_today", 0)
-        val base = if (p.getInt("day", 0) != today) 0 else null
-        ed.putInt("done_today", (base ?: p.getInt("done_today", 0)) + 1)
-        if (wasNew && c.reps == 1) ed.putInt("new_today", (base ?: p.getInt("new_today", 0)) + 1)
+        val sameDay = p.getInt("day", 0) == today
+        if (!sameDay) ed.putInt("day", today).putInt("new_today", 0).putInt("done_today", 0)
+        ed.putInt("done_today", (if (sameDay) p.getInt("done_today", 0) else 0) + newCards)
+        if (firstReps > 0) ed.putInt("new_today", (if (sameDay) p.getInt("new_today", 0) else 0) + firstReps)
         val days = p.getStringSet("days", emptySet())!!.toMutableSet().apply { add(today.toString()) }
         ed.putStringSet("days", days.toList().sortedDescending().take(400).toSet())
         ed.apply()

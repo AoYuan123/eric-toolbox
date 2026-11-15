@@ -80,15 +80,63 @@ internal fun IeltsRoot(voice: EnVoice, onBack: () -> Unit) {
     val stack = remember { mutableStateListOf("home") }
     fun back() { if (stack.size > 1) stack.removeAt(stack.lastIndex) else onBack() }
     BackHandler { back() }
-    val r = stack.last()
-    if (r.startsWith("s:")) IeltsSceneScreen(r.removePrefix("s:"), voice) { back() }
-    else IeltsHome { stack.add(it) }
+    when (val r = stack.last()) {
+        "home" -> IeltsHome(voice) { stack.add(it) }
+        else -> when {
+            r.startsWith("s:") -> IeltsSceneScreen(r.removePrefix("s:"), voice) { back() }
+            r.startsWith("unit:") -> {
+                // unit:<词库 id>:<单元序号>
+                val body = r.removePrefix("unit:")
+                val cut = body.lastIndexOf(':')
+                val libId = if (cut > 0) body.substring(0, cut) else body
+                val unit = body.substring(cut + 1).toIntOrNull() ?: 0
+                IeltsUnitDrill(libId, unit, voice) { back() }
+            }
+            r.startsWith("lib:") -> IeltsUnits(r.removePrefix("lib:"), { back() }) { u ->
+                stack.add("unit:${r.removePrefix("lib:")}:$u")
+            }
+            else -> IeltsHome(voice) { stack.add(it) }
+        }
+    }
 }
 
-// ======================= 场景库 =======================
+// ======================= 首页：场景 / 词库 / 我的 =======================
+
+private val HOME_TABS_ZH = listOf("场景", "词库", "我的")
+private val HOME_TABS_EN = listOf("Scenarios", "Library", "Mine")
 
 @Composable
-private fun IeltsHome(go: (String) -> Unit) {
+private fun IeltsHome(voice: EnVoice, go: (String) -> Unit) {
+    var tab by remember { mutableIntStateOf(0) }
+    Column(Modifier.fillMaxSize()) {
+        Header(tr("雅思", "IELTS"), null) {
+            Caption(
+                when (tab) {
+                    0 -> "${IeltsData.scenes.size} " + tr("个场景", "scenarios")
+                    1 -> tr("雅思 5038 词 · 托福 6970 词", "5038 IELTS · 6970 TOEFL")
+                    else -> tr("进度与错词", "Progress")
+                },
+            )
+        }
+        Row(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            HOME_TABS_ZH.forEachIndexed { k, zh ->
+                val on = k == tab
+                Text(tr(zh, HOME_TABS_EN[k]), color = if (on) onAcc() else C.Text, fontSize = 14.sp,
+                    modifier = Modifier.background(if (on) C.Gold else C.Surface, RoundedCornerShape(12.dp))
+                        .press { tab = k }.padding(horizontal = 18.dp, vertical = 8.dp))
+            }
+        }
+        Spacer(Modifier.height(8.dp))
+        when (tab) {
+            0 -> SceneList(go)
+            1 -> IeltsVault { go("lib:$it") }
+            else -> IeltsMine(voice) { go("lib:$it") }
+        }
+    }
+}
+
+@Composable
+private fun SceneList(go: (String) -> Unit) {
     val ctx = LocalContext.current
     var cat by remember { mutableIntStateOf(0) }
     var tick by remember { mutableIntStateOf(0) }
@@ -99,47 +147,44 @@ private fun IeltsHome(go: (String) -> Unit) {
     val learned = remember(tick) { EnglishStore.learnedCount(ctx, IeltsData.BOOK) }
     val list = remember(cat) { IeltsData.byCat(cats[cat]) }
 
-    Column(Modifier.fillMaxSize()) {
-        Header(tr("雅思场景", "IELTS by scenario"), null) { Caption("${IeltsData.scenes.size} " + tr("个场景", "scenarios")) }
-        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            // 总览：一句话说清这套东西是什么、进度在哪
-            Tile(strong = true) {
-                Text(tr("按场景学，不按词表背", "Learn by situation, not by word list"), color = C.Text, fontSize = 16.sp, fontWeight = FontWeight.Medium)
-                Spacer(Modifier.height(4.dp))
-                Caption(tr("${IeltsData.scenes.size} 个场景 · ${IeltsData.words.size} 个场景词 · ${IeltsData.scenes.sumOf { it.chunks.size }} 条功能语块",
-                    "${IeltsData.scenes.size} scenarios · ${IeltsData.words.size} words · ${IeltsData.scenes.sumOf { it.chunks.size }} chunks"))
-                Spacer(Modifier.height(10.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(18.dp)) {
-                    Stat(tr("已读场景", "Read"), "${readIds.size}/${IeltsData.scenes.size}")
-                    Stat(tr("场景词入队", "In review"), "${if (inBook) onIds.size else 0}/${IeltsData.scenes.size}")
-                    Stat(tr("已掌握", "Learned"), "$learned/${IeltsData.words.size}")
-                }
-                Spacer(Modifier.height(10.dp))
-                Meter(if (IeltsData.words.isEmpty()) 0f else learned.toFloat() / IeltsData.words.size)
-                Spacer(Modifier.height(6.dp))
-                Caption(tr("场景词走的是同一套记忆曲线：进了队列，第二天背单词就会考。",
-                    "Scenario words join the same spaced-repetition queue."))
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        // 总览：一句话说清这套东西是什么、进度在哪
+        Tile(strong = true) {
+            Text(tr("按场景学，不按词表背", "Learn by situation, not by word list"), color = C.Text, fontSize = 16.sp, fontWeight = FontWeight.Medium)
+            Spacer(Modifier.height(4.dp))
+            Caption(tr("${IeltsData.scenes.size} 个场景 · ${IeltsData.words.size} 个场景词 · ${IeltsData.scenes.sumOf { it.chunks.size }} 条功能语块",
+                "${IeltsData.scenes.size} scenarios · ${IeltsData.words.size} words · ${IeltsData.scenes.sumOf { it.chunks.size }} chunks"))
+            Spacer(Modifier.height(10.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(18.dp)) {
+                Stat(tr("已读场景", "Read"), "${readIds.size}/${IeltsData.scenes.size}")
+                Stat(tr("场景词入队", "In review"), "${if (inBook) onIds.size else 0}/${IeltsData.scenes.size}")
+                Stat(tr("已掌握", "Learned"), "$learned/${IeltsData.words.size}")
             }
-            if (IeltsData.BOOK !in EnglishStore.books(ctx) || onIds.isEmpty()) {
-                Btn(tr("把全部场景词加入每日背词", "Add all scenario words to daily review"), primary = true, modifier = Modifier.fillMaxWidth()) {
-                    EnglishStore.setBooks(ctx, (EnglishStore.books(ctx) + IeltsData.BOOK).distinct())
-                    IeltsStore.setOn(ctx, IeltsData.scenes.map { it.id }.toSet())
-                    tick++
-                }
-            }
-            // 分类切换
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                cats.forEachIndexed { k, c ->
-                    val on = k == cat
-                    Text(tr(c.zh, c.en), color = if (on) onAcc() else C.Text, fontSize = 14.sp,
-                        modifier = Modifier.background(if (on) C.Gold else C.Surface, RoundedCornerShape(12.dp)).press { cat = k }.padding(horizontal = 16.dp, vertical = 8.dp))
-                }
-            }
-            list.forEach { s ->
-                SceneTile(s, readIds = readIds, on = s.id in onIds, inBook = inBook) { go("s:${s.id}") }
-            }
-            Spacer(Modifier.height(16.dp))
+            Spacer(Modifier.height(10.dp))
+            Meter(if (IeltsData.words.isEmpty()) 0f else learned.toFloat() / IeltsData.words.size)
+            Spacer(Modifier.height(6.dp))
+            Caption(tr("场景词走的是同一套记忆曲线：进了队列，第二天背单词就会考。",
+                "Scenario words join the same spaced-repetition queue."))
         }
+        if (IeltsData.BOOK !in EnglishStore.books(ctx) || onIds.isEmpty()) {
+            Btn(tr("把全部场景词加入每日背词", "Add all scenario words to daily review"), primary = true, modifier = Modifier.fillMaxWidth()) {
+                EnglishStore.setBooks(ctx, (EnglishStore.books(ctx) + IeltsData.BOOK).distinct())
+                IeltsStore.setOn(ctx, IeltsData.scenes.map { it.id }.toSet())
+                tick++
+            }
+        }
+        // 分类切换
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            cats.forEachIndexed { k, c ->
+                val on = k == cat
+                Text(tr(c.zh, c.en), color = if (on) onAcc() else C.Text, fontSize = 14.sp,
+                    modifier = Modifier.background(if (on) C.Gold else C.Surface, RoundedCornerShape(12.dp)).press { cat = k }.padding(horizontal = 16.dp, vertical = 8.dp))
+            }
+        }
+        list.forEach { s ->
+            SceneTile(s, readIds = readIds, on = s.id in onIds, inBook = inBook) { go("s:${s.id}") }
+        }
+        Spacer(Modifier.height(16.dp))
     }
 }
 

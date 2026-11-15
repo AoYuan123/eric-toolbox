@@ -148,8 +148,6 @@ private fun GoldMain(onBack: () -> Unit, onSettings: () -> Unit, onHold: (GoldPa
         PriceHeader(product, snap, GoldModule.jcjPrev(ctx))
         LowCards(product, lows, snap)
         CompareRow(product, snap, compareOpen) { compareOpen = !compareOpen }
-        // 手动刷新消息面：refreshNews 是挂起函数，必须套在 scope.launch 里（不能直接放在点击回调里）
-        NewsCard(news, newsStatus, snap?.market?.price) { scope.launch { runCatching { GoldModule.refreshNews(ctx, force = true) } } }
 
         // 走势
         Column(Modifier.fillMaxWidth().background(C.Surface, RoundedCornerShape(18.dp)).padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -227,6 +225,11 @@ private fun GoldMain(onBack: () -> Unit, onSettings: () -> Unit, onHold: (GoldPa
         if (status.error != null && status.lastOkMs != 0L) Text(status.error!!, color = C.Muted, fontSize = 11.sp, modifier = Modifier.padding(horizontal = 4.dp))
         if (!cfg.enabled) Text("后台监控已关闭，只有打开本页时才刷新。可在右上角设置里开启。", color = C.Warn, fontSize = 12.sp)
         else if (!RunWindow.isOpen(ctx)) Text("当前在提醒时段外（${RunWindow.describe(ctx)} 提醒）：价格照常更新，跌破档位会在时段开始时汇总提醒。", color = C.Muted, fontSize = 12.sp)
+
+        // 消息面放在最底部：价格、档位、持仓这些是主信息，新闻是辅助解读，不能挤在前面
+        // 手动刷新消息面：refreshNews 是挂起函数，必须套在 scope.launch 里（不能直接放在点击回调里）
+        Box(Modifier.height(4.dp))
+        NewsCard(news, newsStatus, snap?.market?.price) { scope.launch { runCatching { GoldModule.refreshNews(ctx, force = true) } } }
         Box(Modifier.height(12.dp))
     }
 }

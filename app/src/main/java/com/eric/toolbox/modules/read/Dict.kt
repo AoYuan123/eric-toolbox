@@ -46,8 +46,28 @@ object Dict {
         return out
     }
 
-    private fun lemma(d: SQLiteDatabase, w: String): String? =
-        d.rawQuery("select w from x where f=?", arrayOf(w)).use { c -> if (c.moveToFirst()) c.getString(0) else null }
+    /** 只要个数时用这个：不把 5000+ 个词条读进内存（词书页每本书都要算一次大小）。 */
+    fun countByTag(ctx: Context, tag: String): Int {
+        require(tag.matches(Regex("[a-z0-9]+")))
+        return open(ctx).rawQuery("select count(*) from d where (' '||g||' ') like ?", arrayOf("% $tag %")).use { c ->
+            if (c.moveToFirst()) c.getInt(0) else 0
+        }
+    }
+
+    /** 按字母序取一段（分单元背诵用：offset 起、limit 个）。 */
+    fun sliceByTag(ctx: Context, tag: String, offset: Int, limit: Int): List<Entry> {
+        require(tag.matches(Regex("[a-z0-9]+")))
+        val out = ArrayList<Entry>(limit)
+        open(ctx).rawQuery(
+            "select o,p,t,g from d where (' '||g||' ') like ? order by w limit ? offset ?",
+            arrayOf("% $tag %", limit.toString(), offset.toString()),
+        ).use { c ->
+            while (c.moveToNext()) out += Entry(c.getString(0) ?: "", c.getString(1) ?: "", c.getString(2) ?: "", null, c.getString(3) ?: "")
+        }
+        return out
+    }
+
+    private fun lemma(d: SQLiteDatabase, w: String): String? =        d.rawQuery("select w from x where f=?", arrayOf(w)).use { c -> if (c.moveToFirst()) c.getString(0) else null }
 
     /** 查词：先查原词，再查词形对照表，最后按规则还原（-ed/-ing/-s 等）。查不到返回 null。 */
     fun lookup(ctx: Context, raw: String): Entry? {
