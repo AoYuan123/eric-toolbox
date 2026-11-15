@@ -71,6 +71,9 @@ object EnglishStore {
         LAW -> LawData.get(ctx).terms.firstOrNull { it.key == key }?.let { t ->
             Item(book, key, t.en, t.zh, t.exEn, t.exZh, t.noteZh + "（出处：" + t.refLabel + "）", "", t.en.contains(' '))
         }
+        com.eric.toolbox.modules.english.ielts.IeltsData.BOOK -> com.eric.toolbox.modules.english.ielts.IeltsData.word(key)?.let { w ->
+            Item(book, key, w.en, w.zh, w.ex, w.exZh, if (w.tip.isNotBlank()) "${w.coll} · ${w.tip}" else w.coll, "", w.en.contains(' '))
+        }
         EnglishBooks.MINE -> Notes.words(ctx).firstOrNull { it.word.equals(key, true) }?.let { w ->
             Item(book, key, w.word, ReadLogic.shortMeaning(w.meaning, 3), w.sentence, "", if (w.bookTitle.isNotBlank()) "来自《${w.bookTitle}》" else "", w.phonetic, false)
         }
@@ -85,6 +88,7 @@ object EnglishStore {
                 EnglishBooks.IP, EnglishBooks.DAILY -> EnglishBooks.book(b).map { it.key }
                 EnglishBooks.MINE -> Notes.words(ctx).sortedBy { it.addedAt }.map { it.word.lowercase() }
                 LAW -> LawData.get(ctx).terms.map { it.key }
+                com.eric.toolbox.modules.english.ielts.IeltsData.BOOK -> com.eric.toolbox.modules.english.ielts.IeltsStore.keys(ctx)
                 else -> runCatching { Dict.wordsByTag(ctx, b).map { it.word.lowercase() } }.getOrDefault(emptyList())
             }
             keys.asSequence().map { k -> "$b:$k" }.filter { cs[it]?.isNew != false }.take(limit).map { id -> EnglishLogic.Card(id, b, id.substringAfter(':')) }.toList()
@@ -105,6 +109,7 @@ object EnglishStore {
         EnglishBooks.IP, EnglishBooks.DAILY -> EnglishBooks.book(book).size
         EnglishBooks.MINE -> Notes.words(ctx).size
         LAW -> LawData.get(ctx).terms.size
+        com.eric.toolbox.modules.english.ielts.IeltsData.BOOK -> com.eric.toolbox.modules.english.ielts.IeltsStore.keys(ctx).size
         else -> runCatching { Dict.wordsByTag(ctx, book).size }.getOrDefault(0)
     }
 

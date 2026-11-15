@@ -1,5 +1,7 @@
 package com.eric.toolbox.modules.gold
 
+import android.content.Intent
+import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -13,6 +15,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -83,6 +86,9 @@ private fun GoldMain(onBack: () -> Unit, onSettings: () -> Unit, onHold: (GoldPa
     val snap by GoldModule.snapshot.collectAsState()
     val status by GoldModule.status.collectAsState()
     val bankSeries by GoldModule.bankSeries.collectAsState()
+    val lows by GoldModule.lows.collectAsState()
+    val news by GoldModule.news.collectAsState()
+    val newsStatus by GoldModule.newsStatus.collectAsState()
     val cfg = remember(tick) { GoldModule.config(ctx) }
     val last = remember(tick) { GoldModule.lastAlerted(ctx) }
 
@@ -93,6 +99,14 @@ private fun GoldMain(onBack: () -> Unit, onSettings: () -> Unit, onHold: (GoldPa
             runCatching { GoldModule.refresh(ctx) }
             tick++
             delay(15_000)
+        }
+    }
+
+    // 消息面独立节奏：5 分钟一次，不跟 15 秒的价格刷新绑在一起
+    LaunchedEffect(Unit) {
+        while (true) {
+            runCatching { GoldModule.refreshNews(ctx) }
+            delay(5 * 60_000L)
         }
     }
 
@@ -132,7 +146,9 @@ private fun GoldMain(onBack: () -> Unit, onSettings: () -> Unit, onHold: (GoldPa
         }
 
         PriceHeader(product, snap, GoldModule.jcjPrev(ctx))
+        LowCards(product, lows, snap)
         CompareRow(product, snap, compareOpen) { compareOpen = !compareOpen }
+        NewsCard(news, newsStatus, snap?.market?.price) { runCatching { GoldModule.refreshNews(ctx, force = true) } }
 
         // 走势
         Column(Modifier.fillMaxWidth().background(C.Surface, RoundedCornerShape(18.dp)).padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -252,8 +268,7 @@ private fun PriceHeader(product: String, snap: Snapshot?, jcjPrev: Double?) {
 }
 
 @Composable
-private fun BigPrice(price: String, color: Color, chg: String?, pct: String?) {
-    Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+private fun BigPrice(price: String, color: Color, chg: String?, pct: String?) {    Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(price, color = color, fontSize = 44.sp, fontFamily = Mono, fontWeight = FontWeight.Medium)
         Text("元/克", color = C.Muted, fontSize = 13.sp, modifier = Modifier.padding(bottom = 8.dp))
         if (chg != null) Text(chg, color = color, fontSize = 16.sp, fontFamily = Mono, modifier = Modifier.padding(bottom = 7.dp))
@@ -314,6 +329,106 @@ private fun CompareRow(product: String, snap: Snapshot?, open: Boolean, onToggle
                 if (product == "ry") Text("如意金是实物积存报价，买卖价差较大，不参与一致性校验。", color = C.Muted, fontSize = 11.sp)
                 if (mismatch) Text("与其他来源偏差超过容差，可能是数据异常，此时暂停提醒。", color = C.Warn, fontSize = 11.sp)
             }
+        }
+    }
+}
+
+/**
+ * 三个低点：当日 / 本月 / 今年。
+ *
+ * 只在大盘页显示——积存金和如意金没有公开历史，用大盘的低点会误导。
+ * 「距现价」是现价减去低点，也就是"跌回那个位置还有多少空间"。
+ */
+@Composable
+private fun LowCards(product: String, lows: List<GoldLow.Point>, snap: Snapshot?) {
+    if (product != "market" || lows.isEmpty()) return
+    val cur = snap?.market?.price
+    Column(Modifier.fillMaxWidth().background(C.Surface, RoundedCornerShape(14.dp)).padding(horizontal = 12.dp, vertical = 10.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("近期低点", color = C.Text, fontSize = 13.sp, modifier = Modifier.weight(1f))
+            Text("大盘 Au99.99 · 距现价", color = C.Muted, fontSize = 11.sp)
+        }
+        Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            lows.forEach { p ->
+                Column(Modifier.weight(1f)) {
+                    Text(p.label, color = C.Muted, fontSize = 11.sp)
+                    Text(f2(p.price), color = C.Text, fontSize = 16.sp, fontFamily = Mono)
+                    val gap = if (p.price != null && cur != null) cur - p.price else null
+                    Text(gap?.let { "+" + f2(it) } ?: "--", color = C.Muted, fontSize = 11.sp, fontFamily = Mono)
+                    Text(lowTimeText(p), color = C.Muted, fontSize = 10.sp)
+                }
+            }
+        }
+    }
+}
+
+/** 低点时刻：当日到分钟，本月到日，今年到月（月线只能精确到月）。 */
+private fun lowTimeText(p: GoldLow.Point): String = when {
+    p.key == "year" && p.note.isNotBlank() -> p.note
+    p.atMs == null -> "--"
+    p.key == "day" -> hmFmt.format(Date(p.atMs))
+    else -> java.text.SimpleDateFormat("MM-dd", Locale.CHINA).apply { timeZone = BJ }.format(Date(p.atMs))
+}
+
+/**
+ * 消息面。
+ *
+ * 时间 + 一句话 + 方向标签。标签是关键词规则自动判断的（不花钱、离线也能算），
+ * 所以页脚注明"自动判断"——「降息预期降温」这种否定句在规则里单独排前面处理，
+ * 但规则永远有边界，原文点开就能核对。
+ */
+@Composable
+private fun NewsCard(
+    news: List<GoldNewsItem>,
+    st: GoldModule.NewsStatus,
+    cur: Double?,
+    onRefresh: () -> Unit,
+) {
+    val ctx = LocalContext.current
+    Column(Modifier.fillMaxWidth().background(C.Surface, RoundedCornerShape(14.dp)).padding(start = 12.dp, end = 12.dp, top = 10.dp, bottom = 8.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("消息面", color = C.Text, fontSize = 13.sp, modifier = Modifier.weight(1f))
+            Text(if (st.loading) "更新中…" else "5 分钟刷新 · 自动判断方向", color = C.Muted, fontSize = 10.sp)
+            Text("刷新", color = C.Gold, fontSize = 11.sp, modifier = Modifier.clickable { onRefresh() }.padding(start = 8.dp, top = 4.dp, bottom = 4.dp))
+        }
+        if (news.isEmpty()) {
+            Text(
+                st.error?.let { "暂时没有取到消息：$it" } ?: "正在获取…",
+                color = C.Muted, fontSize = 11.sp, modifier = Modifier.padding(top = 8.dp, bottom = 4.dp), lineHeight = 16.sp,
+            )
+            return@Column
+        }
+        news.take(8).forEach { n ->
+            Row(
+                Modifier.fillMaxWidth().clickable {
+                    runCatching { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(n.url))) }
+                }.padding(vertical = 7.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text(GoldNews.timeText(n.atMs), color = C.Muted, fontSize = 10.sp, modifier = Modifier.width(38.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(n.text.take(90) + if (n.text.length > 90) "…" else "", color = C.Text, fontSize = 12.sp, lineHeight = 18.sp)
+                    Row(Modifier.padding(top = 3.dp), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                        val (fg, bg) = when (n.impact) {
+                            Impact.BULL -> C.Warn to C.WarnBg
+                            Impact.BEAR -> C.Ok to C.OkBg
+                            Impact.DATA -> C.Gold to C.GoldBg
+                            Impact.NEUTRAL -> C.Muted to C.Line
+                        }
+                        Text(
+                            n.impact.label + (if (n.reason.isNotBlank()) " · ${n.reason}" else ""),
+                            color = fg, fontSize = 10.sp,
+                            modifier = Modifier.background(bg, RoundedCornerShape(5.dp)).padding(horizontal = 5.dp, vertical = 1.dp),
+                        )
+                        if (n.important) Text("重要", color = C.Gold, fontSize = 10.sp)
+                        Text(n.source, color = C.Muted, fontSize = 10.sp)
+                    }
+                }
+            }
+        }
+        Row(Modifier.fillMaxWidth().padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text("来源：金十数据 · 华尔街见闻", color = C.Muted, fontSize = 10.sp, modifier = Modifier.weight(1f))
+            if (cur != null) Text("点一条看原文", color = C.Muted, fontSize = 10.sp)
         }
     }
 }

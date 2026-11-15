@@ -63,6 +63,24 @@ object GoldModule : ToolModule {
     private val _status = MutableStateFlow(FetchStatus())
     val status: StateFlow<FetchStatus> = _status
 
+    /** 当日 / 本月 / 今年最低。历史 K 线算出来的，行情接口本身只给当日最低。 */
+    private val _lows = MutableStateFlow<List<GoldLow.Point>>(emptyList())
+    val lows: StateFlow<List<GoldLow.Point>> = _lows
+
+    /** 消息面（会影响金价的快讯） */
+    private val _news = MutableStateFlow<List<GoldNewsItem>>(emptyList())
+    val news: StateFlow<List<GoldNewsItem>> = _news
+
+    data class NewsStatus(val atMs: Long = 0, val loading: Boolean = false, val error: String? = null)
+    private val _newsStatus = MutableStateFlow(NewsStatus())
+    val newsStatus: StateFlow<NewsStatus> = _newsStatus
+
+    /** 新闻单独一把锁：它比行情慢，不能拖住 15 秒一次的价格刷新 */
+    private val newsLock = Mutex()
+
+    /** 上次算三个低点的时刻，用来限流（一分钟一次） */
+    @Volatile private var lowsAtMs = 0L
+
     fun prefs(ctx: Context): SharedPreferences = Store.module(ctx, id)
 
     // ---------------- 设置 ----------------
@@ -112,7 +130,10 @@ object GoldModule : ToolModule {
     // 后台服务和界面可能同时刷新，用锁保证同一时间只判断一次，避免重复提醒
     private val lock = Mutex()
 
-    suspend fun refresh(ctx: Context) = lock.withLock { refreshLocked(ctx) }
+    suspend fun refresh(ctx: Context) {
+        lock.withLock { refreshLocked(ctx) }
+        refreshLows(ctx)
+    }
 
     private suspend fun refreshLocked(ctx: Context) {
         val now = System.currentTimeMillis()
@@ -132,6 +153,81 @@ object GoldModule : ToolModule {
         _snapshot.value = snap
         recordBank(ctx, snap)
         evaluate(ctx, snap, now)
+    }
+
+    /**
+     * 算三个低点。**不放在价格锁里**：历史 K 线第一次要发三个请求（最长各 8 秒超时），
+     * 占着锁会让 15 秒一次的价格刷新排到它后面。价格已经先显示了，低点晚几秒无所谓。
+     *
+     * 一分钟内只算一次（分钟线本身就是 1 分钟缓存），失败留空、下轮再试，不影响价格。
+     */
+    private suspend fun refreshLows(ctx: Context) {
+        val now = System.currentTimeMillis()
+        if (now - lowsAtMs < 60_000L) return
+        lowsAtMs = now
+        val q = _snapshot.value?.market ?: return
+        val minutes = runCatching { KlineRepo.get(ctx, KlineRepo.Kind.MIN).bars }.getOrDefault(emptyList())
+        val days = runCatching { KlineRepo.get(ctx, KlineRepo.Kind.DAY).bars }.getOrDefault(emptyList())
+        val months = runCatching { KlineRepo.get(ctx, KlineRepo.Kind.MONTH).bars }.getOrDefault(emptyList())
+        if (days.isEmpty() && months.isEmpty() && minutes.isEmpty()) return
+        val pts = GoldLow.compute(System.currentTimeMillis(), q, minutes, days, months)
+        if (pts.any { it.price != null }) _lows.value = pts
+    }
+
+    // ---------------- 消息面 ----------------
+
+    /** 拉一次新闻。3 分钟内不重复拉（页面 15 秒刷一次价，新闻没必要跟着跑）。 */
+    suspend fun refreshNews(ctx: Context, force: Boolean = false) = newsLock.withLock {
+        val now = System.currentTimeMillis()
+        val st = _newsStatus.value
+        if (st.loading) return@withLock
+        if (!force && st.atMs > 0 && now - st.atMs < 3 * 60_000L) return@withLock
+        if (_news.value.isEmpty()) loadNewsCache(ctx)
+        _newsStatus.value = st.copy(loading = true)
+        val r = runCatching { GoldNews.fetch(now) }
+            .getOrElse { GoldNews.Result(emptyList(), it.message ?: "网络错误") }
+        if (r.items.isNotEmpty()) {
+            _news.value = r.items
+            _newsStatus.value = NewsStatus(now, false, r.error)
+            saveNewsCache(ctx, now, r.items)
+        } else {
+            _newsStatus.value = NewsStatus(st.atMs, false, r.error)
+        }
+    }
+
+    /** 手机里存一份，下次打开先显示上次的，联网后再刷新（离线也能看到最近消息）。 */
+    private fun saveNewsCache(ctx: Context, at: Long, list: List<GoldNewsItem>) {
+        runCatching {
+            val arr = JSONArray()
+            list.forEach { n ->
+                arr.put(
+                    JSONObject().put("t", n.atMs).put("x", n.text).put("s", n.source)
+                        .put("u", n.url).put("i", n.important).put("k", n.impact.name).put("r", n.reason),
+                )
+            }
+            prefs(ctx).edit().putString("news_cache", arr.toString()).putLong("news_at", at).apply()
+        }
+    }
+
+    private fun loadNewsCache(ctx: Context) {
+        runCatching {
+            val p = prefs(ctx)
+            val arr = JSONArray(p.getString("news_cache", "[]"))
+            val out = ArrayList<GoldNewsItem>()
+            for (i in 0 until arr.length()) {
+                val o = arr.optJSONObject(i) ?: continue
+                out += GoldNewsItem(
+                    atMs = o.optLong("t"), text = o.optString("x"), source = o.optString("s"),
+                    url = o.optString("u"), important = o.optBoolean("i"),
+                    impact = runCatching { Impact.valueOf(o.optString("k")) }.getOrDefault(Impact.NEUTRAL),
+                    reason = o.optString("r"),
+                )
+            }
+            if (out.isNotEmpty()) {
+                _news.value = out
+                _newsStatus.value = NewsStatus(p.getLong("news_at", 0), false, null)
+            }
+        }
     }
 
     /** 两次查询之间的大盘最低价：用东方财富分钟线补上中间漏掉的快速下探。 */

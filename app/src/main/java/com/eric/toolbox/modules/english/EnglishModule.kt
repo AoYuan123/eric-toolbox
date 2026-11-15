@@ -30,6 +30,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.MenuBook
 import androidx.compose.material.icons.outlined.Mic
+import androidx.compose.material.icons.outlined.RecordVoiceOver
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Gavel
 import androidx.compose.material.icons.outlined.Style
@@ -140,6 +141,7 @@ fun EnglishRoot(onBack: () -> Unit, isTab: Boolean) {
             "speak" -> SpeakScreen(voice) { page = "home" }
             "pron" -> PronScreen(voice) { page = "home" }
             "law" -> com.eric.toolbox.modules.english.law.LawRoot(voice) { page = "home" }
+            "ielts" -> com.eric.toolbox.modules.english.ielts.IeltsRoot(voice) { page = "home" }
             else -> EnHome(isTab, onBack, go = { page = it })
         }
     }
@@ -240,6 +242,18 @@ private fun EnHome(isTab: Boolean, onBack: () -> Unit, go: (String) -> Unit) {
                     Text("›", color = C.Muted, fontSize = 22.sp)
                 }
             }
+            Tile(onClick = { go("ielts") }) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Outlined.RecordVoiceOver, null, tint = C.Text, modifier = Modifier.size(22.dp))
+                    Spacer(Modifier.width(12.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(tr("雅思场景", "IELTS by scenario"), color = C.Text, fontSize = 15.sp, fontWeight = FontWeight.Medium)
+                        Caption(tr("18 个场景 · 点菜 / 入住 / 汇报 / 开会 · 对话 + 场景词 + 语块",
+                            "18 scenarios · dialogue, words and chunks"))
+                    }
+                    Text("›", color = C.Muted, fontSize = 22.sp)
+                }
+            }
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 Entry(Icons.Outlined.Search, tr("查单词", "Lookup"), tr("离线秒查 · 专业释义", "Offline · domain sense"), Modifier.weight(1f)) { go("lookup") }
                 Entry(Icons.Outlined.Style, tr("词书", "Word books"), tr("工作 · 口语 · 生词", "Work · Speaking · Mine"), Modifier.weight(1f)) { go("books") }
@@ -286,6 +300,7 @@ fun bookName(b: String): String = when (b) {
     EnglishBooks.DAILY -> tr("日常口语高频表达", "Everyday phrases")
     EnglishBooks.MINE -> tr("我的生词本", "My words")
     com.eric.toolbox.modules.english.law.LAW_BOOK -> tr("专利法条术语", "Statutory patent terms")
+    com.eric.toolbox.modules.english.ielts.IeltsData.BOOK -> tr("雅思场景词", "IELTS scenario words")
     else -> EnglishStore.EXAMS[b]?.let { tr(it.first, it.second) } ?: b
 }
 
@@ -549,7 +564,8 @@ private fun BooksScreen(onBack: () -> Unit) {
         Header(tr("词书", "Word books"), onBack)
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Caption(tr("选中的词书会交替出新词。专业词书给的是专利 / 生物医药语境里的意思。", "New words rotate across the selected books."), Modifier.padding(horizontal = 4.dp))
-            listOf(EnglishBooks.IP, com.eric.toolbox.modules.english.law.LAW_BOOK, EnglishBooks.DAILY, EnglishBooks.MINE).forEach { b -> BookRow(b, b in books, ctx) { toggle(b) } }
+            listOf(EnglishBooks.IP, com.eric.toolbox.modules.english.law.LAW_BOOK,
+                com.eric.toolbox.modules.english.ielts.IeltsData.BOOK, EnglishBooks.DAILY, EnglishBooks.MINE).forEach { b -> BookRow(b, b in books, ctx) { toggle(b) } }
             Caption(tr("考试词书（来自离线词典标签）", "Exam lists (from the offline dictionary)"), Modifier.padding(start = 4.dp, top = 8.dp))
             EnglishStore.EXAMS.keys.forEach { b -> BookRow(b, b in books, ctx) { toggle(b) } }
             Caption(tr("每天新词", "New words per day"), Modifier.padding(start = 4.dp, top = 8.dp))
