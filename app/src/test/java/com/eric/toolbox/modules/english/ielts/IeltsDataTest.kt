@@ -59,7 +59,9 @@ class IeltsDataTest {
         val keys = IeltsData.keys()
         assertEquals(IeltsData.words.size, keys.size)
         assertEquals(keys.size, keys.distinct().size)
-        assertTrue("场景词太少，检查是不是有场景没接进 IeltsData.scenes", keys.size >= 280)
+        // 每个场景固定 10 个词；哪个场景忘了写进 IeltsData.scenes，这条就会先挂
+        assertEquals(IeltsData.scenes.size * 10, IeltsData.scenes.sumOf { it.words.size })
+        assertTrue("场景词去重后只剩 ${keys.size} 个，检查是不是有场景没接进 IeltsData.scenes", keys.size >= 270)
     }
 
     @Test
