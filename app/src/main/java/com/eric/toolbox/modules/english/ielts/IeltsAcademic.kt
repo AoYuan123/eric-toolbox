@@ -406,14 +406,14 @@ object IeltsAcademic {
             Wd("offer", "录取", "a conditional offer", "I got a conditional offer.", "我拿到了有条件录取。"),
         ),
         chunks = listOf(
-            Ck("说动机", "Two of the modules map directly onto…", "具体到课程名，别谈"热爱学术""),
+            Ck("说动机", "Two of the modules map directly onto…", "具体到课程名，别谈「热爱学术」"),
             Ck("说方向但留余地", "Something around…, though I'd want to narrow it down.", "有方向 + 愿听指导，最稳"),
             Ck("说资金", "Partly savings, partly…", "结构清楚，不卑不亢"),
             Ck("反问", "How much contact do students get with…?", "问机制，不问评价"),
             Ck("套磁收尾", "Would you be open to a short call?", "给一个低成本的下一步"),
         ),
         asks = listOf(
-            Qs("Why do you want to study abroad?", "你为什么想出国读书？", 3, "专业资源 + 视角 + 职业路径；别只说"开阔眼界""),
+            Qs("Why do you want to study abroad?", "你为什么想出国读书？", 3, "专业资源 + 视角 + 职业路径；别只说「开阔眼界」"),
             Qs("Describe a time you had to meet a tight deadline.", "描述一次赶死线的经历。", 2, "什么任务 + 多紧 + 怎么排优先级 + 结果"),
             Qs("Should universities interview every applicant?", "大学应该面试每个申请者吗？", 3, "面试能看动机和表达 + 但成本高、易受偏见影响 + 折中（抽查 + 视频）"),
         ),
@@ -487,7 +487,7 @@ object IeltsAcademic {
                 aZh = "这儿有人吗？",
                 b = "Go ahead. Are you here for the whole conference or just today?",
                 bZh = "请坐。你是全程参加还是只来今天？",
-                tip = "Go ahead 是最自然的"请便"；用问题开场比自我介绍不突兀",
+                tip = "Go ahead 是最自然的「请便」；用问题开场比自我介绍不突兀",
             ),
             Ln(
                 a = "I work on claim drafting — mostly biotech.",
@@ -508,7 +508,7 @@ object IeltsAcademic {
                 aZh = "我们交换一下联系方式。",
                 b = "Sure — I'll drop you a line next week with the paper we discussed.",
                 bZh = "好。我下周把聊到的那篇论文发你。",
-                tip = "drop sb a line = 发个消息；说清"下周发什么"，对方才会记得你",
+                tip = "drop sb a line = 发个消息；说清「下周发什么」，对方才会记得你",
             ),
         ),
         words = listOf(
@@ -567,7 +567,7 @@ object IeltsAcademic {
                 aZh = "你会怎么改？",
                 b = "I'd collect data from two more jurisdictions — that's the obvious next step.",
                 bZh = "我会再收两个法域的数据，这是最明显的下一步。",
-                tip = "承认改进空间但给出明确下一步，比说"没想过"强十倍",
+                tip = "承认改进空间但给出明确下一步，比说「没想过」强十倍",
             ),
         ),
         words = listOf(

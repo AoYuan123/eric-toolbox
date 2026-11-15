@@ -224,17 +224,35 @@ app/src/test/.../GoldLogicTest.kt、DateLogicTest.kt、TrialLogicTest.kt   单�
   界面写"自动判断"，点一条去原文——规则永远有边界。
 - 新闻缓存存 prefs（`news_cache`/`news_at`），断网也能看上次的；5 分钟刷新一次，跟 15 秒的价格节奏分开。
 
-### 雅思场景（11-15，学英语 › 雅思场景）
-- 代码：`modules/english/ielts/`——`IeltsData`（模型 + `scenes` 汇总）、`IeltsLife`/`IeltsWork`/`IeltsAcademic`（各 6 个场景的手写内容）、
-  `IeltsStore`（进度 + 队列键）、`IeltsScreens`（场景库 + 详情四页签）。
-- 结构：18 个场景 × (4 句对话 + 10 个场景词 + 5 条功能语块 + 3 个追问) = 72 句、180 个词条、90 条语块、54 题。
-  每个场景词带固定搭配、英文例句、中文例句，`tip` 专写"中式说法 → 地道说法"。
-- **为什么按场景而不是再给一份词表**：离线词典里已有 5038 个雅思标签词，缺的是"这个词在什么场合、跟谁、怎么说"。
-  场景词直接进 `EnglishStore` 的 SM-2 队列，第二天背单词就考它。
-- **词书 id 是 `ielts_scene`，不能叫 `ielts`**：`"ielts"` 已被 `EnglishStore.EXAMS` 的词典标签词表占用（走 `Dict.wordsByTag`），两个都用会串到词典释义。
-  `IeltsDataTest` 有断言守着。跨场景重复的词（deposit / deadline / draft…）按词去重只出一条卡，各场景的词汇页各显示各的释义。
-- 跟读只做**识别比对 + 命中率**（`EnglishLogic.wordCheck`），不录音、不上传、不调 AI，免费离线。成绩只记最好的一次。
-- 内容改动只需改那三个 Kotlin 文件；`IeltsDataTest` 会校验每个场景 4/10/5/3、场景内不重复词、英文例句不混中文。
+### 雅思（11-15 建，11-15 重做；学英语 › 雅思）
+- 代码：`modules/english/ielts/`
+  - `IeltsData`（模型 + `scenes` 汇总 + 去重后的 `words`）
+  - `IeltsLife`/`IeltsWork`/`IeltsAcademic`（各 10 个场景的手写内容）
+  - `IeltsStore`（场景进度 + 跟读成绩）
+  - `IeltsLibrary`（词库/单元/持久度/错词本，吃离线词典）
+  - `IeltsDrill`（学后测验出题，纯逻辑）
+  - `IeltsScreens`（首页三页签 + 场景详情四页签）
+  - `IeltsVaultScreens`（词库列表 / 单元网格 / 单元学测 / 我的）
+- **三个页签：场景 / 词库 / 我的**
+- 场景：30 个（生活 10 / 职场 10 / 学术 10）× (4 句对话 + 10 个场景词 + 5 条语块 + 3 个追问)
+  = 120 句、300 个词条、150 条语块、90 题。每个词带固定搭配、英文例句、中文例句，`tip` 写「中式说法 → 地道说法」。
+- 词库：**不另存词表**，直接读离线词典的考试标签——雅思 5038 / 托福 6970 / 六级 5406 / 考研 4801 /
+  四级 3846 / GRE 7504，加手写场景词 300。每 50 词切一个单元（雅思 101 个），点一格进去学。
+- 学测闭环（对着成熟背词 App 抄的作业）：单元内逐词「忘记/模糊/认识」→ 立刻出 8 道测验
+  （看词选义 / 听音选义 / 听写拼写轮换）→ 答错的按 `AGAIN` 记一次，间隔归零并进错词本。
+- **背词数据全部复用 `EnglishStore` 的 SM-2**：卡片 id 仍是 `ielts:abandon`，与词书页的「雅思」同一批卡，
+  不另建一套进度。`EnglishStore.putMany` 是为单元批量落盘加的（一次学 50 个词不能写 50 次文件）。
+- 记忆持久度：`ivlDays >= 21` 算「牢固」（和墨墨的「熟知」同口径），错词本直接从 `lapses > 0` 推，不落新表。
+- **词书 id 是 `ielts_scene`，不能叫 `ielts`**：`"ielts"` 已被 `EnglishStore.EXAMS` 的词典标签词表占用。
+  `IeltsDataTest` 有断言守着。跨场景重复的词（deposit / deadline / draft…）按词去重只出一条卡，各场景词汇页各显示各的释义。
+- **词库里查词必须走 `Dict.countByTag` / `sliceByTag` / `wordsByTag` 三个口子**：词典的
+  `(' '||g||' ') like '% tag %'` 用不上索引，是全表扫描；逐单元各查一次（101 次）会把进页面卡住，
+  所以单元网格统一用 `learnedByUnit()` 一次读完再切块。
+- 跟读只做**识别比对 + 命中率**（`EnglishLogic.wordCheck`），不录音、不上传、不调 AI，免费离线。
+- 手写内容里**不要用英文双引号做中文引号**（`"好，我会的"` 会把 Kotlin 字符串截断）。
+  要引号就用「」，这是这批内容唯一踩过的语法坑。
+- 内容改动只需改那三个 Kotlin 文件；`IeltsDataTest` 校验每个场景 4/10/5/3、场景内不重复词、英文例句不混中文；
+  `IeltsDrillTest` 校验测验选项的下标（下标算错在界面上完全看不出来）。
 
 **zlib 的边界（改动前务必守住）**- **不做内置 WebView**：站点前置 Cloudflare 人机校验（`Checking your browser`），WebView 里基本过不去；一律 `Intent.ACTION_VIEW` 交给系统浏览器，顺带走系统代理。
 - **不做账号登录**：Z-Library 下载必须登录，但账号密码只能留在浏览器里，App 一个字都不收。
