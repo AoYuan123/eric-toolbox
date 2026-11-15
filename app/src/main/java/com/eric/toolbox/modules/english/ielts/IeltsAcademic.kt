@@ -3,7 +3,8 @@ package com.eric.toolbox.modules.english.ielts
 /** 学术类场景：雅思口语 Part 2/3 与留学生活的实际对话。 */
 object IeltsAcademic {
 
-    val list: List<Scene> = listOf(enrol, supervisor, seminar, present, library, feedback)
+    // by lazy：单例按声明顺序初始化，直接写 = listOf(...) 会读到还没初始化的场景字段
+    val list: List<Scene> by lazy { listOf(enrol, supervisor, seminar, present, library, feedback) }
 
     private val enrol = Scene(
         id = "enrol", zh = "校园注册与选课", en = "Campus enrolment", cat = Cat.ACADEMIC,

@@ -3,7 +3,9 @@ package com.eric.toolbox.modules.english.ielts
 /** 生活类场景：雅思口语 Part 1 的高频题，也是听力 Section 1 的典型对话。 */
 object IeltsLife {
 
-    val list: List<Scene> = listOf(restaurant, hotel, renting, airport, bank, clinic)
+    // by lazy 不只是省时间：单例初始化是按声明顺序走的，直接写 = listOf(...) 会去读
+    // 还没初始化的 restaurant/hotel…（Kotlin 报 "Variable must be initialized"）
+    val list: List<Scene> by lazy { listOf(restaurant, hotel, renting, airport, bank, clinic) }
 
     private val restaurant = Scene(
         id = "restaurant", zh = "餐厅点餐", en = "Ordering food", cat = Cat.LIFE,

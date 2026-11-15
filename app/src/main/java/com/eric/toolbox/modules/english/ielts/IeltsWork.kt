@@ -3,7 +3,8 @@ package com.eric.toolbox.modules.english.ielts
 /** 职场类场景：用户点名要的「日常职场对话、跟领导汇报、开会」都在这里。 */
 object IeltsWork {
 
-    val list: List<Scene> = listOf(smalltalk, report, meeting, call, negotiate, interview)
+    // by lazy：单例按声明顺序初始化，直接写 = listOf(...) 会读到还没初始化的场景字段
+    val list: List<Scene> by lazy { listOf(smalltalk, report, meeting, call, negotiate, interview) }
 
     private val smalltalk = Scene(
         id = "smalltalk", zh = "职场日常寒暄", en = "Office small talk", cat = Cat.WORK,
