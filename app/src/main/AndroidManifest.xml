@@ -73,6 +73,15 @@
             android:supportsPictureInPicture="true"
             android:theme="@style/Theme.EricToolbox" />
 
+        <!-- 内置浏览器：全工程的网页（新闻原文、法律条文、临床试验、Z-Library…）都在这里打开，
+             不再跳外部浏览器。configChanges 是为了旋转时不重建 Activity，否则网页会被重新加载。 -->
+        <activity
+            android:name=".modules.browser.BrowserActivity"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|smallestScreenSize|density|uiMode"
+            android:exported="false"
+            android:theme="@style/Theme.EricToolbox"
+            android:windowSoftInputMode="adjustResize" />
+
         <!-- 把下载好的新版安装包交给系统安装器 -->
         <provider
             android:name="androidx.core.content.FileProvider"

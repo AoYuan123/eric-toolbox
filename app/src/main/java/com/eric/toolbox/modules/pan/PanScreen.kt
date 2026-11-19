@@ -3,8 +3,6 @@ package com.eric.toolbox.modules.pan
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
-import android.content.Intent
-import android.net.Uri
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -47,6 +45,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.eric.toolbox.modules.browser.BrowserModule
 import com.eric.toolbox.modules.pan.core.CloudType
 import com.eric.toolbox.modules.pan.model.PanItem
 import com.eric.toolbox.modules.pan.model.VerifyState
@@ -337,8 +336,6 @@ private fun copy(ctx: Context, text: String) {
 
 private fun open(ctx: Context, url: String) {
     if (url.isBlank()) return
-    val ok = runCatching {
-        ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-    }.isSuccess
-    if (!ok) Toast.makeText(ctx, "没有能打开这个链接的应用", Toast.LENGTH_SHORT).show()
+    // http/https 在 App 内打开；磁力链接 WebView 处理不了，BrowserModule 会自动转给系统
+    if (!BrowserModule.open(ctx, url)) Toast.makeText(ctx, "没有能打开这个链接的应用", Toast.LENGTH_SHORT).show()
 }

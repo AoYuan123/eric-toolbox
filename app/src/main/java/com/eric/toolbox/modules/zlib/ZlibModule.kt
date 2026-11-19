@@ -28,8 +28,14 @@ import java.util.Locale
 /**
  * Z-Library 入口。
  *
- * App 这边只是一个书签加搜索框：拼好 /s/书名 交给系统浏览器打开，走系统代理。
- * 不做内置浏览器——站点前置 Cloudflare 的人机校验，WebView 里基本过不去；
+ * 搜索走 App 自己的浏览器：拼好 `/s/书名`，交给 `BrowserModule.ScreenAt` 打开，
+ * 用户看完结果点下载、按返回回到搜索框，全程不出 App。
+ *
+ * 以前这里是 `ACTION_VIEW` 跳系统浏览器，理由是「WebView 过不去 Cloudflare」。
+ * 那个判断已被 BrowserModule 推翻 —— 过不去是因为 WebView 的 UA 自报内嵌
+ * （带 `; wv`），把这两个标记剥掉、保留真实的 Chrome 版本号就能过。
+ * 系统浏览器那条留作兜底（内置的卡住时用），没有删。
+ *
  * 不做账号登录，密码不落在 App 里；不内置「官方域名清单」，因为那东西不存在，
  * 域名是一组轮换镜像，内置了反而误导人。
  */
@@ -159,6 +165,10 @@ object ZlibModule : ToolModule {
 
     // ---------------- 打开 ----------------
 
+    /**
+     * 交给系统浏览器。只作兜底 —— 正常路径是内置浏览器（[com.eric.toolbox.modules.browser.BrowserModule.ScreenAt]），
+     * 保留它是因为万一某个机型的内置浏览器过不去人机验证，还得有一条能走的路。
+     */
     fun open(ctx: Context, url: String): Boolean = try {
         ctx.startActivity(
             Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),

@@ -38,6 +38,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.eric.toolbox.modules.browser.BrowserModule
 import com.eric.toolbox.modules.zlib.core.SiteProbe
 import com.eric.toolbox.ui.C
 import com.eric.toolbox.ui.ListCard
@@ -80,7 +81,8 @@ private fun ZlibMain(onBack: () -> Unit, onOpenDomains: () -> Unit) {
         }
         ZlibModule.recordSearch(ctx, k)
         recent = ZlibModule.recent(ctx)
-        if (!ZlibModule.open(ctx, ZlibModule.searchUrl(ctx, k))) note = "没找到可用的浏览器"
+        // 在 App 自己的浏览器里打开结果页，不跳外部浏览器
+        if (!BrowserModule.open(ctx, ZlibModule.searchUrl(ctx, k))) note = "打不开内置浏览器"
     }
 
     fun pingAll() {
@@ -182,8 +184,8 @@ private fun ZlibMain(onBack: () -> Unit, onOpenDomains: () -> Unit) {
             }
 
             ListCard {
-                RowItem("打开首页", sub = "用浏览器打开当前站点", onClick = {
-                    if (!ZlibModule.open(ctx, ZlibModule.homeUrl(ctx))) note = "没找到可用的浏览器"
+                RowItem("打开首页", sub = "在 App 里打开当前站点", onClick = {
+                    if (!BrowserModule.open(ctx, ZlibModule.homeUrl(ctx))) note = "打不开内置浏览器"
                 })
                 RowItem(
                     if (pinging) "正在检测…" else "检测连通性",
@@ -191,6 +193,13 @@ private fun ZlibMain(onBack: () -> Unit, onOpenDomains: () -> Unit) {
                     onClick = { pingAll() },
                 )
                 RowItem("站点管理", "${sites.size}", "域名会轮换，打不开就换一个", onOpenDomains)
+                RowItem(
+                    "用系统浏览器打开",
+                    sub = "内置的卡在人机验证时走这条",
+                    onClick = {
+                        if (!ZlibModule.open(ctx, ZlibModule.homeUrl(ctx))) note = "没有可用的浏览器"
+                    },
+                )
             }
 
             Text(

@@ -1,6 +1,7 @@
 package com.eric.toolbox.modules.browser
 
 import android.content.Context
+import android.content.Intent
 import android.net.Uri
 import android.webkit.WebSettings
 import androidx.compose.material.icons.Icons
@@ -97,4 +98,30 @@ object BrowserModule : ToolModule {
 
     @Composable
     override fun Screen(onBack: () -> Unit) = BrowserScreen(onBack)
+
+    /**
+     * 全工程唯一的内置浏览入口。
+     *
+     * 新闻原文、法律条文、临床试验、网盘链接、读书外链、Z-Library 搜索结果……
+     * 凡是要打开网页的地方都调这一个，不要再用 `ACTION_VIEW` 跳外部浏览器 ——
+     * 用户明确要求「不要跳出别的浏览器」。
+     *
+     * **自动分流**：只有 `http` / `https` 进 WebView。`magnet:` `tel:` `mailto:`
+     * `intent://` `market://` 这些 WebView 处理不了，转给系统 —— 否则点了会毫无反应，
+     * 比跳出去更糟（网盘里的磁力链接就是这种情况）。
+     */
+    fun open(ctx: Context, url: String): Boolean {
+        if (url.isBlank()) return false
+        val scheme = runCatching { Uri.parse(url).scheme?.lowercase() }.getOrNull()
+        if (scheme != "http" && scheme != "https") return openExternal(ctx, url)
+        return BrowserActivity.open(ctx, url)
+    }
+
+    /** 交给系统处理。只用于 WebView 处理不了的 scheme，正常网页不要走这里。 */
+    fun openExternal(ctx: Context, url: String): Boolean = runCatching {
+        ctx.startActivity(
+            Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+        )
+        true
+    }.getOrDefault(false)
 }

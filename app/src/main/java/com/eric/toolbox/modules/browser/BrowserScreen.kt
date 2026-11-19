@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -71,17 +72,22 @@ import com.eric.toolbox.ui.C
  *
  * 结构就三行：地址栏、网页、底下一排键。不搞多标签、不搞书签栏 ——
  * 那两样一上，代码量和出问题的面就翻倍，而这里要解决的只是「别跳出去」。
+ *
+ * [startUrl] 是从别的模块跳进来時要直接打开的地址（Z-Library 搜书就是走这条路）。
+ * 空着就是必应首页。
  */
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
-internal fun BrowserScreen(onBack: () -> Unit) {
+internal fun BrowserScreen(onBack: () -> Unit, startUrl: String = BrowserModule.HOME) {
     val ctx = LocalContext.current
     val focusMgr = LocalFocusManager.current
 
-    var target by remember { mutableStateOf(BrowserModule.HOME) }
+    val first = remember(startUrl) { startUrl.ifBlank { BrowserModule.HOME } }
+
+    var target by remember(first) { mutableStateOf(first) }
     // 序号：搜同一个词两次也要真的重新加载，光比地址会以为是没响应
     var seq by remember { mutableIntStateOf(0) }
-    var shown by remember { mutableStateOf(BrowserModule.HOME) }
+    var shown by remember(first) { mutableStateOf(first) }
     var progress by remember { mutableIntStateOf(0) }
     var canBack by remember { mutableStateOf(false) }
     var canFwd by remember { mutableStateOf(false) }
@@ -131,7 +137,7 @@ internal fun BrowserScreen(onBack: () -> Unit) {
         }
     }
 
-    Column(Modifier.fillMaxSize().background(C.Bg)) {
+    Column(Modifier.fillMaxSize().background(C.Bg).safeDrawingPadding()) {
         Row(
             Modifier.fillMaxWidth().padding(start = 2.dp, end = 6.dp, top = 6.dp, bottom = 2.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -184,12 +190,15 @@ internal fun BrowserScreen(onBack: () -> Unit) {
                 }
             }
 
-            // 直接跳到 zlib 模块里配的那个站点，不用再记域名
-            TextButton(
-                onClick = { navigate(ZlibModule.current(ctx) + "/") },
-                contentPadding = PaddingValues(horizontal = 8.dp),
-            ) {
-                Text("书库", color = C.Muted, fontSize = 13.sp)
+            // 「书库」只在 Z-Library 相关页面出现。从新闻、法律、临床试验点进来时，
+            // 顶栏冒出一个「书库」按钮会让人莫名其妙。
+            if (remember(shown) { ZlibModule.sites(ctx).any { shown.startsWith(it) } }) {
+                TextButton(
+                    onClick = { navigate(ZlibModule.current(ctx) + "/") },
+                    contentPadding = PaddingValues(horizontal = 8.dp),
+                ) {
+                    Text("书库", color = C.Muted, fontSize = 13.sp)
+                }
             }
         }
 

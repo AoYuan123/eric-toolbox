@@ -1,8 +1,6 @@
 package com.eric.toolbox.modules.english.law
 
 import android.content.Context
-import android.content.Intent
-import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -45,6 +43,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import android.widget.Toast
+import com.eric.toolbox.modules.browser.BrowserModule
 import com.eric.toolbox.modules.english.Btn
 import com.eric.toolbox.modules.english.EnVoice
 import com.eric.toolbox.modules.english.EnglishLogic
@@ -82,8 +81,10 @@ internal fun LawRoot(voice: EnVoice, onBack: () -> Unit) {
 }
 
 internal fun openUrl(ctx: Context, url: String) {
-    runCatching { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
-        .onFailure { Toast.makeText(ctx, tr("没找到能打开网页的应用", "No browser found"), Toast.LENGTH_SHORT).show() }
+    // 走 App 自己的浏览器，不跳外部。见 BrowserModule.open 的说明。
+    if (!BrowserModule.open(ctx, url)) {
+        Toast.makeText(ctx, tr("打不开内置浏览器", "Couldn't open the in-app browser"), Toast.LENGTH_SHORT).show()
+    }
 }
 
 /**

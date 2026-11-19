@@ -1,7 +1,5 @@
 package com.eric.toolbox.modules.gold
 
-import android.content.Intent
-import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -44,6 +42,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.eric.toolbox.core.RunWindow
+import com.eric.toolbox.modules.browser.BrowserModule
 import com.eric.toolbox.ui.C
 import com.eric.toolbox.ui.Mono
 import com.eric.toolbox.ui.Pill
@@ -405,7 +404,8 @@ private fun NewsCard(
         news.take(8).forEach { n ->
             Row(
                 Modifier.fillMaxWidth().clickable {
-                    runCatching { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(n.url))) }
+                    // 新闻原文在 App 内打开，不跳外部浏览器
+                    BrowserModule.open(ctx, n.url)
                 }.padding(vertical = 7.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {

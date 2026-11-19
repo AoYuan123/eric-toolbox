@@ -62,6 +62,7 @@ import com.eric.toolbox.core.MonitorService
 import com.eric.toolbox.core.Notifier
 import com.eric.toolbox.core.RunWindow
 import com.eric.toolbox.core.Store
+import com.eric.toolbox.modules.browser.BrowserModule
 import com.eric.toolbox.core.UpdateInfo
 import com.eric.toolbox.core.ApkInstaller
 import com.eric.toolbox.core.Mailer
@@ -185,7 +186,7 @@ fun MineScreen(go: (Route) -> Unit) {
                         val apk = u.apkUrl
                         val ready = ApkInstaller.downloaded(ctx, u.versionCode)
                         when {
-                            apk == null -> ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(u.pageUrl)))
+                            apk == null -> { BrowserModule.open(ctx, u.pageUrl) }
                             !ApkInstaller.canInstall(ctx) -> {
                                 dlMsg = "请在打开的设置页里允许“安装未知应用”，返回后再点一次"
                                 ApkInstaller.openInstallPermissionSettings(ctx)

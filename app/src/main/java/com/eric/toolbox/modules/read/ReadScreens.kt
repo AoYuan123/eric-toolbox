@@ -1,8 +1,7 @@
 package com.eric.toolbox.modules.read
 
 import android.annotation.SuppressLint
-import android.content.Intent
-import android.net.Uri
+import android.content.Context
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -61,6 +60,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import coil.compose.AsyncImage
 import com.eric.toolbox.core.Http
+import com.eric.toolbox.modules.browser.BrowserModule
 import com.eric.toolbox.modules.read.ReadLogic.Source
 import com.eric.toolbox.ui.C
 import com.eric.toolbox.ui.CardBox
@@ -375,7 +375,7 @@ internal fun DetailScreen(h: ReadLogic.Hit, onBack: () -> Unit, openBook: (Strin
                 }
             }
             h.webUrl?.let { url ->
-                ListCard { RowItem("在网页上打开", "", url.removePrefix("https://").substringBefore('/')) { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) } }
+                ListCard { RowItem("在网页上打开", "", url.removePrefix("https://").substringBefore('/')) { BrowserModule.open(ctx, url) } }
             }
             Text("下载后在阅读器菜单里点「听书」：机器朗读任何书都能听；真人有声书（LibriVox）只有部分公版英文书有。", color = C.Muted, fontSize = 12.sp, modifier = Modifier.padding(4.dp))
         }

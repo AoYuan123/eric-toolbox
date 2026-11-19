@@ -2,8 +2,6 @@
 
 package com.eric.toolbox.modules.trials
 
-import android.content.Intent
-import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -51,6 +49,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.eric.toolbox.core.RunWindow
+import com.eric.toolbox.modules.browser.BrowserModule
 import com.eric.toolbox.ui.C
 import com.eric.toolbox.ui.ListCard
 import com.eric.toolbox.ui.Mono
@@ -156,7 +155,7 @@ private fun NctLink(nct: String, modifier: Modifier = Modifier) {
         "$nct ↗", color = C.Gold, fontSize = 13.sp, fontFamily = Mono,
         textDecoration = androidx.compose.ui.text.style.TextDecoration.Underline,
         modifier = modifier.clickable {
-            runCatching { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://clinicaltrials.gov/study/$nct")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+            BrowserModule.open(ctx, "https://clinicaltrials.gov/study/$nct")
         }.padding(vertical = 2.dp),
     )
 }
@@ -438,7 +437,7 @@ private fun DetailScreen(nct: String, back: () -> Unit, go: (TPage) -> Unit) {
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             FilledButton("在 ClinicalTrials.gov 打开", Modifier.weight(1f)) {
-                runCatching { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://clinicaltrials.gov/study/$nct"))) }
+                BrowserModule.open(ctx, "https://clinicaltrials.gov/study/$nct")
             }
             OutlineButton("单独关注此试验", C.Text, Modifier.weight(1f)) { go(TPage.Add(presetNct = nct)) }
         }
