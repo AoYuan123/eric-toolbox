@@ -24,6 +24,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.PhotoLibrary
+import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -104,6 +105,7 @@ fun FamilyScreen(onBack: () -> Unit) {
     var detail by remember { mutableStateOf<Entry?>(null) }
     var pickFor by remember { mutableStateOf<String?>(null) }
     var planOpen by remember { mutableStateOf(false) }
+    var showOpen by remember { mutableStateOf(false) }
 
     // 第一次进来、还没定起点：自动把设置弹出来一次。之后不再打扰。
     var setupOpen by remember {
@@ -235,6 +237,16 @@ fun FamilyScreen(onBack: () -> Unit) {
     Box(Modifier.fillMaxSize().background(C.Bg)) {
         Column(Modifier.fillMaxSize()) {
             TopBar("记忆绳", onBack) {
+                if (entries.isNotEmpty()) {
+                    IconButton(onClick = { showOpen = true }) {
+                        Icon(
+                            Icons.Filled.PlayCircle,
+                            "放映",
+                            tint = C.Muted,
+                            modifier = Modifier.size(22.dp),
+                        )
+                    }
+                }
                 TextButton(onClick = { planOpen = true }) { Text("时间表", color = C.Muted, fontSize = 13.sp) }
             }
 
@@ -338,6 +350,16 @@ fun FamilyScreen(onBack: () -> Unit) {
                 reload()
                 detail = null
             },
+        )
+    }
+
+    if (showOpen) {
+        FamilyShow(
+            entries = entries,
+            mediaDir = FamilyStore.mediaDir(ctx),
+            edd = edd,
+            birth = birth,
+            onClose = { showOpen = false },
         )
     }
 
