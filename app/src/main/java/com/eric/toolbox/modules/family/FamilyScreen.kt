@@ -43,6 +43,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
@@ -86,14 +87,22 @@ fun FamilyScreen(onBack: () -> Unit) {
         val fresh = FamilyStore.load(ctx)
         entries.clear()
         entries.addAll(fresh)
+        doneSet = FamilyStore.doneKeys(ctx)
     }
 
-    LaunchedEffect(Unit) { reload() }
+    LaunchedEffect(Unit) {
+        reload()
+        // 每天早上的检查靠 WorkManager，重复排不会叠加。放在这里而不是 App.onCreate：
+        // 没用过这个模块的人不该被排一个每天醒来的任务。
+        FamilyReminder.schedule(ctx)
+    }
 
     var shelfAt by remember { mutableStateOf<Int?>(null) }
     var shelfDate by remember { mutableStateOf(FamilyDate.today()) }
     var detail by remember { mutableStateOf<Entry?>(null) }
     var pickFor by remember { mutableStateOf<String?>(null) }
+    var planOpen by remember { mutableStateOf(false) }
+    var doneSet by remember { mutableStateOf(FamilyStore.doneKeys(ctx)) }
 
     // 第一次进来、还没定起点：自动把设置弹出来一次。之后不再打扰。
     var setupOpen by remember {
@@ -225,7 +234,7 @@ fun FamilyScreen(onBack: () -> Unit) {
     Box(Modifier.fillMaxSize().background(C.Bg)) {
         Column(Modifier.fillMaxSize()) {
             TopBar("记忆绳", onBack) {
-                TextButton(onClick = { setupOpen = true }) { Text("起点", color = C.Muted, fontSize = 13.sp) }
+                TextButton(onClick = { planOpen = true }) { Text("时间表", color = C.Muted, fontSize = 13.sp) }
             }
 
             val stage = FamilyDate.stageLabel(edd, birth, FamilyDate.today())
@@ -241,6 +250,9 @@ fun FamilyScreen(onBack: () -> Unit) {
                 Text("  ·  已挂 ${entries.size} 件", color = C.Muted, fontSize = 13.sp)
             }
 
+            // 绳尾那张纸片：只写"下一件"。没有就什么都不挂，绳子干净到头。
+            val nextRow = FamilyPlan.next(FamilyPlan.rows(edd, birth, doneSet), FamilyDate.today())
+
             Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
                 if (entries.isEmpty()) {
                     EmptyRope(onLong = { shelfAt = 0; shelfDate = FamilyDate.today() })
@@ -249,7 +261,9 @@ fun FamilyScreen(onBack: () -> Unit) {
                         entries = entries,
                         edd = edd,
                         mediaDir = FamilyStore.mediaDir(ctx),
+                        next = nextRow,
                         onOpen = { detail = it },
+                        onPlan = { planOpen = true },
                         onLong = { idx ->
                             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                             shelfAt = idx
@@ -323,6 +337,20 @@ fun FamilyScreen(onBack: () -> Unit) {
                 reload()
                 detail = null
             },
+        )
+    }
+
+    if (planOpen) {
+        FamilyPlanScreen(
+            edd = edd,
+            birth = birth,
+            done = doneSet,
+            onToggleDone = { key, v ->
+                FamilyStore.setDone(ctx, key, v)
+                doneSet = FamilyStore.doneKeys(ctx)
+            },
+            onSetup = { planOpen = false; setupOpen = true },
+            onClose = { planOpen = false },
         )
     }
 
@@ -404,7 +432,9 @@ private fun RopeStrip(
     entries: List<Entry>,
     edd: LocalDate?,
     mediaDir: File,
+    next: PlanRow?,
     onOpen: (Entry) -> Unit,
+    onPlan: () -> Unit,
     onLong: (Int) -> Unit,
 ) {
     val state = rememberLazyListState()
@@ -431,7 +461,71 @@ private fun RopeStrip(
             itemsIndexed(entries, key = { _, e -> e.id }) { i, e ->
                 RopeItem(e, i, mediaDir, onOpen)
             }
+            // 纸片挂在最后，长按落在这上面时索引正好等于 entries.size，也就是"挂到最末尾"。
+            if (next != null) {
+                item(key = "paper") { RopePaper(next, entries.size, onPlan) }
+            }
         }
+    }
+}
+
+/**
+ * 绳尾那张纸。刻意比照片小、比照片薄、还偏一点角度——
+ * 一眼就能分出"这是还没发生的一件待办"，不是一张已经拍好的照片。
+ */
+@Composable
+private fun RopePaper(row: PlanRow, index: Int, onClick: () -> Unit) {
+    val today = FamilyDate.today()
+    Column(
+        Modifier.width(96.dp).fillMaxHeight(),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Canvas(Modifier.fillMaxWidth().height(72.dp)) {
+            val y0 = nodeY(index).dp.toPx()
+            val y1 = nodeY(index + 1).dp.toPx()
+            val dip = 4.dp.toPx()
+            val path = Path().apply {
+                moveTo(0f, y0)
+                quadraticBezierTo(size.width / 2f, (y0 + y1) / 2f + dip, size.width, y1)
+            }
+            drawPath(path, RopeColor, style = Stroke(width = 1.2.dp.toPx()))
+            drawLine(
+                Color.White.copy(alpha = 0.18f),
+                Offset(size.width / 2f, (y0 + y1) / 2f + dip * 0.6f),
+                Offset(size.width / 2f, size.height),
+                strokeWidth = 0.8.dp.toPx(),
+            )
+        }
+
+        Box(
+            Modifier
+                .width(58.dp)
+                .height(70.dp)
+                .rotate(-2.6f)
+                .clip(RoundedCornerShape(1.dp))
+                .background(PaperColor)
+                .clickable(onClick = onClick),
+        ) {
+            Column(Modifier.fillMaxSize().padding(6.dp)) {
+                Text(FamilyDate.short(row.due), color = PaperInk.copy(alpha = 0.5f), fontSize = 8.sp)
+                Spacer(Modifier.height(3.dp))
+                Text(
+                    row.item.title,
+                    color = PaperInk,
+                    fontSize = 9.5.sp,
+                    lineHeight = 12.sp,
+                    maxLines = 4,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+
+        Spacer(Modifier.height(9.dp))
+        Text(
+            if (row.due == today) "今天" else FamilyPlan.daysLabel(row.due, today),
+            color = C.Gold.copy(alpha = 0.9f),
+            fontSize = 11.sp,
+        )
     }
 }
 

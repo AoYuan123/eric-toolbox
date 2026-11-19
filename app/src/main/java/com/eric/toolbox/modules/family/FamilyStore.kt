@@ -113,6 +113,26 @@ object FamilyStore {
         prefs(ctx).edit().putBoolean(key, v).apply()
     }
 
+    // ======================= 时间表 =======================
+
+    /**
+     * 已经划掉的条目。按 key 存，不按日期——日期会随预产期改，key 不会。
+     * 建议先 copy 一份再改：getStringSet 返回的是内部引用，直接 mutate 在某些机型上会丢写入。
+     */
+    fun doneKeys(ctx: Context): Set<String> =
+        prefs(ctx).getStringSet("plan_done", emptySet())?.toSet() ?: emptySet()
+
+    fun setDone(ctx: Context, key: String, done: Boolean) {
+        val cur = doneKeys(ctx).toMutableSet()
+        if (done) cur.add(key) else cur.remove(key)
+        prefs(ctx).edit().putStringSet("plan_done", cur).apply()
+    }
+
+    /** 预产期或生日改了以后，旧的划掉记录就没意义了——留着会挡住新的日期。 */
+    fun clearDone(ctx: Context) {
+        prefs(ctx).edit().remove("plan_done").apply()
+    }
+
     /** 占用的空间（KB），运行状态里显示用。 */
     fun usedKb(ctx: Context): Long {
         val dir = mediaDir(ctx)
