@@ -45,8 +45,7 @@ import java.time.LocalDate
  * 时间表。全屏折页：当前这一章展开，后面的只露标题和还剩几项。
  *
  * 每一条点开是"那天到底要干什么"：做什么检查、看哪几个数字、去之前准备什么、
- * 大致什么顺序。再往下一行是"我的"——几号诊室、医生交代的话，自己填一次，
- * 之后每次翻到都能看见。
+ * 大致什么顺序。最后一行是"备注"——医生交代的话、自己想问的事，写一句，之后翻到就能看见。
  *
  * 刻意的取舍：
  *  - 不显示"你落后了几项"。已经过期的条目只是变灰，不红、不报数、不弹窗。
@@ -403,12 +402,12 @@ private fun Detail(
     ) {
         if (item.items.isNotEmpty()) Field("这次做", item.items, done)
         if (item.watch.isNotEmpty()) Field("看什么", item.watch, done)
-        if (item.flow.isNotEmpty()) Field("到医院", item.flow, done)
+        if (item.flow.isNotEmpty()) Field("先做什么", item.flow, done)
 
         Column(Modifier.fillMaxWidth().clickable(onClick = onNote)) {
-            Text("我的", color = C.Muted.copy(alpha = 0.5f), fontSize = 11.sp)
+            Text("备注", color = C.Muted.copy(alpha = 0.5f), fontSize = 11.sp)
             Text(
-                if (myNote.isEmpty()) "几号楼几层、哪个诊室、医生交代的——点这里记一句"
+                if (myNote.isEmpty()) "医生交代的、自己想问的——点这里记一句"
                 else myNote,
                 color = if (myNote.isEmpty()) C.Muted.copy(alpha = 0.55f) else C.Text.copy(alpha = 0.9f),
                 fontSize = 12.sp,
@@ -455,7 +454,7 @@ private fun PlanNoteDialog(
                 onValueChange = { text = it.take(300) },
                 placeholder = {
                     Text(
-                        "例：四楼产科 7 号诊室，先在自助机挂号；医生说下次带 B 超单",
+                        "例：这次想问胎位正不正；上次血红蛋白 108",
                         color = C.Muted.copy(alpha = 0.55f),
                         fontSize = 12.5.sp,
                     )
@@ -476,9 +475,8 @@ private fun PlanNoteDialog(
 @Composable
 private fun FootNote() {
     Text(
-        "这些是国家规范里的产检、儿保和免疫规划，具体以你建档医院的安排为准。\n" +
-            "点开任意一条能看这次做什么、看哪几个数字、去之前准备什么；" +
-            "医院那套走法（几楼、哪个诊室、先缴费还是先抽血）各家不同，写在「我的」里就行。\n" +
+        "这些是国家规范里的产检、儿保和免疫规划，不是某一家医院的单子——查什么、看什么、要不要空腹憋尿，各地都差不多。\n" +
+            "但各家医院的档期和先后不完全一样，以你建档医院的通知为准；有出入就在这一条的备注里改一句。\n" +
             "做不了就划掉，不会一直催。生日照不用这里提醒——那天长按绳子挂一张就行。",
         color = C.Muted.copy(alpha = 0.6f),
         fontSize = 11.sp,
