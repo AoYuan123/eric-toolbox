@@ -4,6 +4,7 @@ import android.content.Context
 import com.eric.toolbox.modules.ai.AiModule
 import com.eric.toolbox.modules.datecalc.DateCalcModule
 import com.eric.toolbox.modules.english.EnglishModule
+import com.eric.toolbox.modules.family.FamilyModule
 import com.eric.toolbox.modules.gold.GoldModule
 import com.eric.toolbox.modules.pan.PanModule
 import com.eric.toolbox.modules.read.ReadModule
@@ -25,6 +26,7 @@ object ModuleRegistry {
         PanModule,
         VodModule,
         ZlibModule,
+        FamilyModule, // 记忆绳：孕期到成长的照片/视频/录音
         EnglishModule, // 底部导航第二格，不出现在首页工具格子里
         AiModule, // 首页顶部单独一条入口，不出现在模块格子里
         // 以后的新模块加在这里

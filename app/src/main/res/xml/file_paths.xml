@@ -2,4 +2,9 @@
 <paths>
     <!-- 只开放缓存里的 updates 目录（新版安装包） -->
     <cache-path name="updates" path="updates/" />
+    <!--
+        记忆绳：拍完照/录完像，要把 files/family/media/ 里的文件地址交给系统相机去写。
+        只开这一个子目录，别顺手开 files-path 根——那等于把整个私有目录都交出去。
+    -->
+    <files-path name="family" path="family/media/" />
 </paths>
