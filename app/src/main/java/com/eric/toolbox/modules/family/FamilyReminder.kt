@@ -94,7 +94,22 @@ object FamilyReminder {
         val first = hits.first()
         val title = if (first.due == today) "今天：${first.item.title}" else "还有 3 天：${first.item.title}"
         val body = buildString {
+            // 通知里最有用的不是"这是什么"，而是"现在要准备什么"——空腹、憋尿、带证件。
+            if (first.item.prep.isNotEmpty()) {
+                append(first.item.prep.joinToString("、"))
+                append("\n")
+            }
+            if (first.item.items.isNotEmpty()) {
+                append("要做：")
+                append(first.item.items)
+                append("\n")
+            }
             append(first.item.note)
+            val my = FamilyStore.planNote(ctx, first.item.key)
+            if (my.isNotEmpty()) {
+                append("\n我的：")
+                append(my)
+            }
             val more = hits.size - 1
             if (more > 0) append("\n还有 $more 件在这几天，点开看时间表。")
         }

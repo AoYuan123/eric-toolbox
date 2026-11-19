@@ -571,6 +571,20 @@ private fun RopePaper(row: PlanRow, index: Int, onClick: () -> Unit) {
             color = C.Gold.copy(alpha = 0.9f),
             fontSize = 11.sp,
         )
+        // 纸片太小装不下准备清单，但"空腹""带证件"这种是当天最容易忘的，
+        // 取前两条缩到纸片底下，看绳子就能看见，不用点进去。
+        if (row.item.prep.isNotEmpty()) {
+            Text(
+                row.item.prep.take(2).joinToString("·"),
+                color = C.Muted.copy(alpha = 0.75f),
+                fontSize = 9.5.sp,
+                lineHeight = 13.sp,
+                textAlign = TextAlign.Center,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.width(96.dp).padding(top = 4.dp),
+            )
+        }
     }
 }
 

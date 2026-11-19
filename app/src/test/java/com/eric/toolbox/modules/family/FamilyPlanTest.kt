@@ -126,4 +126,33 @@ class FamilyPlanTest {
     fun `既没预产期也没生日时 next 不会崩`() {
         assertNull(FamilyPlan.next(emptyList(), LocalDate.of(2026, 11, 19)))
     }
+
+    @Test
+    fun `每次必做的产检都写了项目 准备和去医院干什么`() {
+        val must = FamilyPlan.ALL.filter { it.anchor is Anchor.Gest && it.weight == FamilyPlan.MUST }
+        assertTrue(must.isNotEmpty())
+        must.forEach { item ->
+            assertTrue("${item.key} 没写这次做什么", item.items.isNotEmpty())
+            assertTrue("${item.key} 没写去之前准备什么", item.prep.isNotEmpty())
+            assertTrue("${item.key} 没写医院里的顺序", item.flow.isNotEmpty())
+        }
+    }
+
+    @Test
+    fun `糖耐的准备里必须有空腹 流程里必须有喝糖水的做法`() {
+        val ogtt = FamilyPlan.ALL.first { it.key == "g_ogtt" }
+        assertTrue(ogtt.prep.any { it.contains("禁食") || it.contains("空腹") })
+        assertTrue(ogtt.flow.contains("300ml"))
+        assertTrue(ogtt.watch.contains("5.1"))
+    }
+
+    @Test
+    fun `打针的条目都提醒带接种证`() {
+        // 出生那一针在产房打，那时候还没有接种证
+        val shots = FamilyPlan.ALL.filter { it.key != "b_birth" && it.items.contains("针") }
+        assertTrue(shots.size >= 8)
+        shots.forEach { item ->
+            assertTrue("${item.key} 没提醒带接种证", item.prep.any { it.contains("接种证") })
+        }
+    }
 }

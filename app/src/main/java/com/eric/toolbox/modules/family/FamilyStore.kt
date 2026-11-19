@@ -154,6 +154,21 @@ object FamilyStore {
         prefs(ctx).edit().remove("plan_done").apply()
     }
 
+    /**
+     * 每条时间表自己的备注：几号楼几层、哪个诊室、医生交代了什么、下次要带的东西。
+     * 这些是"你这家医院"的信息，不能写死在代码里，只能存在本机。
+     * 按 key 存，跟划掉的记录一样，改预产期不会把它弄丢。
+     */
+    fun planNote(ctx: Context, key: String): String =
+        prefs(ctx).getString("pn_$key", "").orEmpty()
+
+    fun setPlanNote(ctx: Context, key: String, text: String) {
+        val t = text.trim()
+        prefs(ctx).edit().apply {
+            if (t.isEmpty()) remove("pn_$key") else putString("pn_$key", t)
+        }.apply()
+    }
+
     /** 占用的空间（KB），运行状态里显示用。 */
     fun usedKb(ctx: Context): Long {
         val dir = mediaDir(ctx)

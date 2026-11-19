@@ -14,13 +14,17 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CalendarMonth
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material3.Icon
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -40,10 +44,14 @@ import java.time.LocalDate
 /**
  * 时间表。全屏折页：当前这一章展开，后面的只露标题和还剩几项。
  *
+ * 每一条点开是"那天到底要干什么"：做什么检查、看哪几个数字、去之前准备什么、
+ * 大致什么顺序。再往下一行是"我的"——几号诊室、医生交代的话，自己填一次，
+ * 之后每次翻到都能看见。
+ *
  * 刻意的取舍：
  *  - 不显示"你落后了几项"。已经过期的条目只是变灰，不红、不报数、不弹窗。
  *  - 划掉就是划掉，没有撤销、也没有确认弹窗——这是给自己看的，不是交给别人的作业。
- *  - 每一章一句"这段在忙什么"，比一串日期有用。
+ *  - 医院流程不写死。同一个城市两家医院都能不一样，写死就会错给别人看。
  */
 @Composable
 fun FamilyPlanScreen(
@@ -65,6 +73,11 @@ fun FamilyPlanScreen(
         nextCh ?: groups.lastOrNull()?.first
     }
     var open by remember { mutableStateOf(setOfNotNull(initial)) }
+
+    // 同一时刻只点开一条——两条同时展开，一屏就装不下了。
+    var expanded by remember { mutableStateOf<String?>(null) }
+    var editing by remember { mutableStateOf<PlanRow?>(null) }
+    var noteVersion by remember { mutableStateOf(0) }
 
     Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Column(Modifier.fillMaxSize().background(C.Bg)) {
@@ -99,8 +112,14 @@ fun FamilyPlanScreen(
                                 PlanLine(
                                     row = row,
                                     today = today,
+                                    expanded = expanded == row.item.key,
+                                    noteVersion = noteVersion,
+                                    onExpand = {
+                                        expanded = if (expanded == row.item.key) null else row.item.key
+                                    },
                                     onToggle = { onToggleDone(row.item.key, !row.done) },
                                     onCalendar = { addToCalendar(ctx, row) },
+                                    onNote = { editing = row },
                                 )
                             }
                         }
@@ -110,6 +129,19 @@ fun FamilyPlanScreen(
                 }
             }
         }
+    }
+
+    editing?.let { row ->
+        PlanNoteDialog(
+            title = row.item.title,
+            initial = FamilyStore.planNote(ctx, row.item.key),
+            onDismiss = { editing = null },
+            onSave = { text ->
+                FamilyStore.setPlanNote(ctx, row.item.key, text)
+                noteVersion++
+                editing = null
+            },
+        )
     }
 }
 
@@ -171,9 +203,10 @@ private fun ReminderRow(ctx: Context) {
             Column(Modifier.weight(1f)) {
                 Text("每天早上一声", color = C.Text, fontSize = 14.sp)
                 Text(
-                    "只在有产检、疫苗、儿保的日子提醒",
+                    "只在有产检、疫苗、儿保的日子提醒，空腹和要带的东西一起说",
                     color = C.Muted,
                     fontSize = 12.sp,
+                    lineHeight = 17.sp,
                     modifier = Modifier.padding(top = 3.dp),
                 )
             }
@@ -255,9 +288,15 @@ private fun ChapterHeader(
 private fun PlanLine(
     row: PlanRow,
     today: LocalDate,
+    expanded: Boolean,
+    noteVersion: Int,
+    onExpand: () -> Unit,
     onToggle: () -> Unit,
     onCalendar: () -> Unit,
+    onNote: () -> Unit,
 ) {
+    val ctx = LocalContext.current
+    val myNote = remember(row.item.key, noteVersion) { FamilyStore.planNote(ctx, row.item.key) }
     val past = !row.done && row.due.isBefore(today)
 
     Column(Modifier.fillMaxWidth()) {
@@ -270,14 +309,23 @@ private fun PlanLine(
                 contentAlignment = Alignment.Center,
             ) { PlanDot(row.item.weight, row.done, past) }
 
-            Column(Modifier.weight(1f).padding(top = 6.dp, end = 8.dp)) {
-                Text(
-                    row.item.title,
-                    color = if (row.done) C.Muted.copy(alpha = 0.55f) else C.Text,
-                    fontSize = 14.sp,
-                    lineHeight = 20.sp,
-                    textDecoration = if (row.done) TextDecoration.LineThrough else null,
-                )
+            Column(Modifier.weight(1f).padding(top = 6.dp, end = 8.dp).clickable(onClick = onExpand)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        row.item.title,
+                        color = if (row.done) C.Muted.copy(alpha = 0.55f) else C.Text,
+                        fontSize = 14.sp,
+                        lineHeight = 20.sp,
+                        textDecoration = if (row.done) TextDecoration.LineThrough else null,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Icon(
+                        Icons.Filled.KeyboardArrowDown,
+                        if (expanded) "收起" else "展开",
+                        tint = C.Muted.copy(alpha = 0.45f),
+                        modifier = Modifier.size(16.dp).rotate(if (expanded) 180f else 0f),
+                    )
+                }
                 Text(
                     row.item.note,
                     color = if (row.done) C.Muted.copy(alpha = 0.45f) else C.Muted,
@@ -285,6 +333,18 @@ private fun PlanLine(
                     lineHeight = 17.sp,
                     modifier = Modifier.padding(top = 4.dp),
                 )
+
+                // 去之前要准备的，比"这项是什么"更容易被漏掉，所以不折起来。
+                if (row.item.prep.isNotEmpty() && !row.done) {
+                    Text(
+                        row.item.prep.joinToString(" · "),
+                        color = C.Gold.copy(alpha = 0.8f),
+                        fontSize = 11.5.sp,
+                        lineHeight = 16.sp,
+                        modifier = Modifier.padding(top = 5.dp),
+                    )
+                }
+
                 Row(Modifier.padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text(FamilyDate.short(row.due), color = C.Muted.copy(alpha = 0.8f), fontSize = 11.sp)
                     Spacer(Modifier.width(8.dp))
@@ -297,6 +357,15 @@ private fun PlanLine(
                             else -> C.Muted
                         },
                         fontSize = 11.sp,
+                    )
+                }
+
+                if (expanded) {
+                    Detail(
+                        item = row.item,
+                        myNote = myNote,
+                        done = row.done,
+                        onNote = onNote,
                     )
                 }
             }
@@ -317,10 +386,99 @@ private fun PlanLine(
     }
 }
 
+/** 展开以后看到的那几行：这次做什么、看什么、到医院什么顺序、我的备注。 */
+@Composable
+private fun Detail(
+    item: PlanItem,
+    myNote: String,
+    done: Boolean,
+    onNote: () -> Unit,
+) {
+    Column(
+        Modifier.fillMaxWidth().padding(top = 12.dp, bottom = 4.dp)
+            .clip(RoundedCornerShape(4.dp))
+            .background(C.Surface.copy(alpha = 0.55f))
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        if (item.items.isNotEmpty()) Field("这次做", item.items, done)
+        if (item.watch.isNotEmpty()) Field("看什么", item.watch, done)
+        if (item.flow.isNotEmpty()) Field("到医院", item.flow, done)
+
+        Column(Modifier.fillMaxWidth().clickable(onClick = onNote)) {
+            Text("我的", color = C.Muted.copy(alpha = 0.5f), fontSize = 11.sp)
+            Text(
+                if (myNote.isEmpty()) "几号楼几层、哪个诊室、医生交代的——点这里记一句"
+                else myNote,
+                color = if (myNote.isEmpty()) C.Muted.copy(alpha = 0.55f) else C.Text.copy(alpha = 0.9f),
+                fontSize = 12.sp,
+                lineHeight = 18.sp,
+                modifier = Modifier.padding(top = 3.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun Field(label: String, text: String, done: Boolean) {
+    Column(Modifier.fillMaxWidth()) {
+        Text(label, color = C.Muted.copy(alpha = 0.5f), fontSize = 11.sp)
+        Text(
+            text,
+            color = if (done) C.Muted.copy(alpha = 0.6f) else C.Text.copy(alpha = 0.9f),
+            fontSize = 12.sp,
+            lineHeight = 18.sp,
+            modifier = Modifier.padding(top = 3.dp),
+        )
+    }
+}
+
+/** 记一句就关，没有"保存"按钮——这里没有错误输入这回事。 */
+@Composable
+private fun PlanNoteDialog(
+    title: String,
+    initial: String,
+    onDismiss: () -> Unit,
+    onSave: (String) -> Unit,
+) {
+    var text by remember { mutableStateOf(initial) }
+
+    Dialog(onDismissRequest = { onSave(text) }) {
+        Column(
+            Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(C.Surface)
+                .padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text(title, color = C.Text, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+            OutlinedTextField(
+                value = text,
+                onValueChange = { text = it.take(300) },
+                placeholder = {
+                    Text(
+                        "例：四楼产科 7 号诊室，先在自助机挂号；医生说下次带 B 超单",
+                        color = C.Muted.copy(alpha = 0.55f),
+                        fontSize = 12.5.sp,
+                    )
+                },
+                modifier = Modifier.fillMaxWidth().heightIn(min = 96.dp),
+                textStyle = androidx.compose.ui.text.TextStyle(fontSize = 13.sp, lineHeight = 20.sp, color = C.Text),
+            )
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                if (text.isNotEmpty()) {
+                    TextButton(onClick = { text = "" }) { Text("清空", color = C.Muted) }
+                }
+                TextButton(onClick = { onSave(text) }) { Text("好了", color = C.Gold) }
+            }
+        }
+    }
+}
+
 @Composable
 private fun FootNote() {
     Text(
         "这些是国家规范里的产检、儿保和免疫规划，具体以你建档医院的安排为准。\n" +
+            "点开任意一条能看这次做什么、看哪几个数字、去之前准备什么；" +
+            "医院那套走法（几楼、哪个诊室、先缴费还是先抽血）各家不同，写在「我的」里就行。\n" +
             "做不了就划掉，不会一直催。生日照不用这里提醒——那天长按绳子挂一张就行。",
         color = C.Muted.copy(alpha = 0.6f),
         fontSize = 11.sp,
@@ -368,13 +526,22 @@ private fun Divider2(leading: Dp = 20.dp) {
     )
 }
 
-/** 系统日历的新建事件界面，预填标题、日期和那句解释。不需要任何日历权限。 */
+/** 系统日历的新建事件界面，预填标题、日期和这次要做的事。不需要任何日历权限。 */
 private fun addToCalendar(ctx: Context, row: PlanRow) {
     val begin = FamilyDate.atDay(row.due)
+    val desc = buildString {
+        append(row.item.note)
+        if (row.item.items.isNotEmpty()) append("\n要做：${row.item.items}")
+        if (row.item.watch.isNotEmpty()) append("\n看什么：${row.item.watch}")
+        if (row.item.prep.isNotEmpty()) append("\n准备：${row.item.prep.joinToString("、")}")
+        if (row.item.flow.isNotEmpty()) append("\n顺序：${row.item.flow}")
+        val my = FamilyStore.planNote(ctx, row.item.key)
+        if (my.isNotEmpty()) append("\n我的：$my")
+    }
     val intent = Intent(Intent.ACTION_INSERT).apply {
         data = CalendarContract.Events.CONTENT_URI
         putExtra(CalendarContract.Events.TITLE, row.item.title)
-        putExtra(CalendarContract.Events.DESCRIPTION, row.item.note)
+        putExtra(CalendarContract.Events.DESCRIPTION, desc)
         putExtra(CalendarContract.EXTRA_EVENT_BEGIN_TIME, begin)
         putExtra(CalendarContract.EXTRA_EVENT_END_TIME, begin + 3_600_000L)
         putExtra(CalendarContract.EXTRA_EVENT_ALL_DAY, true)
