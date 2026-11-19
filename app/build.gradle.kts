@@ -78,6 +78,10 @@ dependencies {
     implementation("androidx.media3:media3-exoplayer-hls:$media3")
     implementation("androidx.media3:media3-exoplayer-dash:$media3")
     implementation("androidx.media3:media3-ui:$media3")
+    // 记忆绳 › 做片子：把照片和短片混排渲染成一个 mp4，本地编码，不联网
+    implementation("androidx.media3:media3-transformer:$media3")
+    // 成片要统一成 1080×1920 的画布，靠 Presentation（effect 模块）；显式声明，不依赖传递
+    implementation("androidx.media3:media3-effect:$media3")
     implementation("io.coil-kt:coil-compose:2.7.0")
     // 读书 › 听书：通知栏/锁屏播放控制、耳机按键（MediaSessionCompat + MediaStyle）
     implementation("androidx.media:media:1.7.0")

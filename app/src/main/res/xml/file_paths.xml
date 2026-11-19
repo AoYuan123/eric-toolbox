@@ -7,4 +7,6 @@
         只开这一个子目录，别顺手开 files-path 根——那等于把整个私有目录都交出去。
     -->
     <files-path name="family" path="family/media/" />
+    <!-- 记忆绳导出的成片：只给"分享"用，所以单独开一个目录，同样不开根。 -->
+    <files-path name="family_movies" path="family/movies/" />
 </paths>

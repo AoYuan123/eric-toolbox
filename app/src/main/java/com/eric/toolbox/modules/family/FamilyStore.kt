@@ -76,6 +76,27 @@ object FamilyStore {
         save(ctx, list)
     }
 
+    /**
+     * 升级前挂上去的照片没有"是不是实况"的标记（live = -1）。
+     * 这里补判一次并落盘，用 flag 兜住，之后不再扫——几百张照片全扫一遍要几秒，
+     * 不能每次打开都扫。
+     */
+    fun migrateLive(ctx: Context) {
+        if (flag(ctx, "live_scanned")) return
+        val list = load(ctx)
+        var changed = false
+        for (i in list.indices) {
+            val e = list[i]
+            if (e.kind == Kind.PHOTO && e.live < 0) {
+                val v = if (MotionPhoto.isLive(fileOf(ctx, e.file))) 1 else 0
+                list[i] = e.copy(live = v)
+                changed = true
+            }
+        }
+        if (changed) save(ctx, list)
+        setFlag(ctx, "live_scanned", true)
+    }
+
     fun remove(ctx: Context, id: String) {
         val list = load(ctx)
         val target = list.firstOrNull { it.id == id } ?: return

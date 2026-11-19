@@ -36,7 +36,9 @@ import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
 import coil.compose.AsyncImage
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.time.LocalDate
 
@@ -52,6 +54,7 @@ import java.time.LocalDate
  * 全屏沉浸，除了关闭没有任何控件——放映的时候不该看见按钮。
  */
 private const val PHOTO_MS = 3600L
+private const val LIVE_MS = 3200L
 private const val VIDEO_MS = 8000L
 private const val AUDIO_CAP_MS = 60_000L
 
@@ -76,33 +79,49 @@ fun FamilyShow(
     val total = entries.size
     val current = entries.getOrNull(index)
 
+    // 实况照片抽出来的那段 mp4；普通照片永远是 null。
+    var motion by remember { mutableStateOf<File?>(null) }
+
     // 换到音视频就换源；照片必须停下来，否则上一段的声音会盖着这张照片继续响。
     LaunchedEffect(index) {
         val e = entries.getOrNull(index) ?: return@LaunchedEffect
-        if (e.kind == Kind.PHOTO) {
+        motion = null
+        // 抄一次缓存住，再放就不用碰原图了。抄不出来（厂商私有格式）就当普通照片。
+        val live = if (e.isLive) {
+            withContext(Dispatchers.IO) { runCatching { MotionPhoto.videoOf(ctx, e) }.getOrNull() }
+        } else null
+        motion = live
+
+        val uri = when {
+            live != null -> Uri.fromFile(live)
+            e.kind == Kind.VIDEO -> Uri.fromFile(File(mediaDir, e.file))
+            else -> null
+        }
+        if (uri == null) {
             player.pause()
             player.clearMediaItems()
         } else {
-            player.setMediaItem(MediaItem.fromUri(Uri.fromFile(File(mediaDir, e.file))))
+            player.setMediaItem(MediaItem.fromUri(uri))
             player.prepare()
             player.playWhenReady = !paused
         }
     }
 
     // 自动往前走。暂停时这条协程被取消，恢复时重新计时（照片会重新数 3.6 秒，可以接受）。
-    LaunchedEffect(index, paused, finished) {
+    LaunchedEffect(index, paused, finished, motion) {
         if (paused || finished) return@LaunchedEffect
         val e = entries.getOrNull(index) ?: return@LaunchedEffect
-        when (e.kind) {
-            Kind.PHOTO -> delay(PHOTO_MS)
-            Kind.VIDEO -> delay(VIDEO_MS)
-            Kind.AUDIO -> delay(e.durationMs.coerceIn(1000L, AUDIO_CAP_MS))
+        when {
+            motion != null -> delay(LIVE_MS)
+            e.kind == Kind.VIDEO -> delay(VIDEO_MS)
+            e.kind == Kind.AUDIO -> delay(e.durationMs.coerceIn(1000L, AUDIO_CAP_MS))
+            else -> delay(PHOTO_MS)
         }
         if (index + 1 < total) index += 1 else { finished = true; player.pause() }
     }
 
     LaunchedEffect(paused) {
-        if (current != null && current.kind != Kind.PHOTO) {
+        if (player.mediaItemCount > 0) {
             if (paused) player.pause() else player.play()
         }
     }
@@ -114,6 +133,7 @@ fun FamilyShow(
         ) {
             when {
                 current == null -> Unit
+                motion != null -> PlayerPane(player)
                 current.kind == Kind.PHOTO -> PhotoPane(File(mediaDir, current.file), index)
                 current.kind == Kind.VIDEO -> PlayerPane(player)
                 else -> AudioPane(player)

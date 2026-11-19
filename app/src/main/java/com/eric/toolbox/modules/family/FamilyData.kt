@@ -28,7 +28,14 @@ data class Entry(
     val madeAtMs: Long = atMs,
     /** 视频/录音时长；照片为 0。 */
     val durationMs: Long = 0L,
+    /**
+     * 是不是实况照片：-1 还没判断过，0 是普通照片，1 是实况照片。
+     * 用三态而不是 Boolean，是为了让升级前挂上去的老照片能被"补判"一次。
+     */
+    val live: Int = -1,
 ) {
+    val isLive: Boolean get() = live == 1
+
     fun toJson(): JSONObject = JSONObject().apply {
         put("id", id)
         put("kind", kind.name)
@@ -37,6 +44,7 @@ data class Entry(
         put("at", atMs)
         put("made", madeAtMs)
         put("dur", durationMs)
+        put("live", live)
     }
 
     companion object {
@@ -48,6 +56,7 @@ data class Entry(
             atMs = o.optLong("at", 0L),
             madeAtMs = o.optLong("made", o.optLong("at", 0L)),
             durationMs = o.optLong("dur", 0L),
+            live = o.optInt("live", -1),
         )
 
         fun toJsonArray(list: List<Entry>): JSONArray = JSONArray().apply { list.forEach { put(it.toJson()) } }

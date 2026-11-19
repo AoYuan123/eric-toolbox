@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Pause
@@ -79,12 +80,7 @@ fun FamilyDetail(
 
             Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
                 when (entry.kind) {
-                    Kind.PHOTO -> AsyncImage(
-                        model = file,
-                        contentDescription = null,
-                        contentScale = ContentScale.Fit,
-                        modifier = Modifier.fillMaxSize().padding(horizontal = 14.dp),
-                    )
+                    Kind.PHOTO -> StillOrLive(entry, file)
                     Kind.VIDEO -> VideoPane(file)
                     Kind.AUDIO -> AudioPane(file, entry.durationMs)
                 }
@@ -148,6 +144,43 @@ fun FamilyDetail(
             confirmButton = { TextButton(onClick = { askDelete = false; onDelete() }) { Text("删掉", color = C.Warn) } },
             dismissButton = { TextButton(onClick = { askDelete = false }) { Text("算了") } },
         )
+    }
+}
+
+/**
+ * 照片。如果是实况照片，底下多一个"点一下播放"的小条——
+ * 不自动播：这是看照片的地方，动起来应该是用户自己点的。
+ */
+@Composable
+private fun StillOrLive(entry: Entry, file: File) {
+    val ctx = LocalContext.current
+    var playing by remember(entry.id) { mutableStateOf(false) }
+    val motion = remember(entry.id) {
+        if (entry.isLive) runCatching { MotionPhoto.videoOf(ctx, entry) }.getOrNull() else null
+    }
+
+    if (playing && motion != null) {
+        VideoPane(motion)
+    } else {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            AsyncImage(
+                model = file,
+                contentDescription = null,
+                contentScale = ContentScale.Fit,
+                modifier = Modifier.fillMaxSize().padding(horizontal = 14.dp),
+            )
+            if (motion != null) {
+                Box(
+                    Modifier.align(Alignment.BottomCenter).padding(bottom = 14.dp)
+                        .clip(RoundedCornerShape(20.dp))
+                        .background(Color.Black.copy(alpha = 0.55f))
+                        .clickable { playing = true }
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                ) {
+                    Text("实况 · 点一下播放", color = Color.White.copy(alpha = 0.9f), fontSize = 12.sp)
+                }
+            }
+        }
     }
 }
 

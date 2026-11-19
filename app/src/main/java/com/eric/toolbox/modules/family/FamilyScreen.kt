@@ -51,7 +51,9 @@ import androidx.core.content.ContextCompat
 import coil.compose.AsyncImage
 import com.eric.toolbox.ui.C
 import com.eric.toolbox.ui.TopBar
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.time.LocalDate
 import kotlin.math.sin
@@ -94,6 +96,8 @@ fun FamilyScreen(onBack: () -> Unit) {
     }
 
     LaunchedEffect(Unit) {
+        // 老照片补判"是不是实况"，一次就好；放 IO 上，不卡住第一帧。
+        withContext(Dispatchers.IO) { runCatching { FamilyStore.migrateLive(ctx) } }
         reload()
         // 每天早上的检查靠 WorkManager，重复排不会叠加。放在这里而不是 App.onCreate：
         // 没用过这个模块的人不该被排一个每天醒来的任务。
@@ -106,6 +110,7 @@ fun FamilyScreen(onBack: () -> Unit) {
     var pickFor by remember { mutableStateOf<String?>(null) }
     var planOpen by remember { mutableStateOf(false) }
     var showOpen by remember { mutableStateOf(false) }
+    var movieOpen by remember { mutableStateOf(false) }
 
     // 第一次进来、还没定起点：自动把设置弹出来一次。之后不再打扰。
     var setupOpen by remember {
@@ -149,6 +154,10 @@ fun FamilyScreen(onBack: () -> Unit) {
                 atMs = atMs,
                 madeAtMs = System.currentTimeMillis(),
                 durationMs = durationMs,
+                // 拍照/相册进来的可能是实况照片：当场判一次，之后不用再判。
+                live = if (kind == Kind.PHOTO) {
+                    if (runCatching { MotionPhoto.isLive(file) }.getOrDefault(false)) 1 else 0
+                } else 0,
             ),
         )
         reload()
@@ -261,6 +270,15 @@ fun FamilyScreen(onBack: () -> Unit) {
                     fontSize = 13.sp,
                 )
                 Text("  ·  已挂 ${entries.size} 件", color = C.Muted, fontSize = 13.sp)
+                Spacer(Modifier.weight(1f))
+                if (entries.size >= 2) {
+                    Text(
+                        "做片子 ›",
+                        color = C.Muted,
+                        fontSize = 12.sp,
+                        modifier = Modifier.clickable { movieOpen = true }.padding(vertical = 4.dp, horizontal = 2.dp),
+                    )
+                }
             }
 
             // 绳尾那张纸片：只写"下一件"。没有就什么都不挂，绳子干净到头。
@@ -351,6 +369,10 @@ fun FamilyScreen(onBack: () -> Unit) {
                 detail = null
             },
         )
+    }
+
+    if (movieOpen) {
+        MovieScreen(entries = entries, onClose = { movieOpen = false })
     }
 
     if (showOpen) {
