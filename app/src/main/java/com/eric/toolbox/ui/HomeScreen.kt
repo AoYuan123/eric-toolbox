@@ -64,6 +64,7 @@ fun moduleName(m: ToolModule): String = when (m.id) {
     "read" -> tr("读书", "Reading")
     "translate" -> tr("翻译", "Translate")
     "datecalc" -> tr("日期计算", "Dates")
+    "browser" -> tr("浏览器", "Browser")
     "english" -> tr("学英语", "English")
     "ai" -> tr("AI 管家", "AI")
     else -> m.name

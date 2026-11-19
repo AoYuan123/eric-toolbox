@@ -2,6 +2,7 @@ package com.eric.toolbox.core
 
 import android.content.Context
 import com.eric.toolbox.modules.ai.AiModule
+import com.eric.toolbox.modules.browser.BrowserModule
 import com.eric.toolbox.modules.datecalc.DateCalcModule
 import com.eric.toolbox.modules.english.EnglishModule
 import com.eric.toolbox.modules.family.FamilyModule
@@ -26,6 +27,7 @@ object ModuleRegistry {
         PanModule,
         VodModule,
         ZlibModule,
+        BrowserModule, // 内置浏览器：必应搜索，站内打开，不跳系统浏览器
         FamilyModule, // 记忆绳：孕期到成长的照片/视频/录音
         EnglishModule, // 底部导航第二格，不出现在首页工具格子里
         AiModule, // 首页顶部单独一条入口，不出现在模块格子里
