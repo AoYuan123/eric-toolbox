@@ -314,7 +314,7 @@ fun FamilyScreen(onBack: () -> Unit) {
             birth = birth,
             onDismiss = { detail = null },
             onSaved = { updated ->
-                if (updated != entry) FamilyStore.update(ctx, updated)
+                if (updated != e) FamilyStore.update(ctx, updated)
                 reload()
                 detail = null
             },
