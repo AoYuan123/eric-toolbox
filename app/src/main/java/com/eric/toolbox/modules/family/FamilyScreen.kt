@@ -82,6 +82,8 @@ fun FamilyScreen(onBack: () -> Unit) {
     var edd by remember { mutableStateOf(FamilyStore.edd(ctx)) }
     var birth by remember { mutableStateOf(FamilyStore.birth(ctx)) }
     val entries = remember { mutableStateListOf<Entry>() }
+    // 必须先于 reload() 声明：Kotlin 的局部函数不能向前引用局部变量。
+    var doneSet by remember { mutableStateOf(FamilyStore.doneKeys(ctx)) }
 
     fun reload() {
         val fresh = FamilyStore.load(ctx)
@@ -102,7 +104,6 @@ fun FamilyScreen(onBack: () -> Unit) {
     var detail by remember { mutableStateOf<Entry?>(null) }
     var pickFor by remember { mutableStateOf<String?>(null) }
     var planOpen by remember { mutableStateOf(false) }
-    var doneSet by remember { mutableStateOf(FamilyStore.doneKeys(ctx)) }
 
     // 第一次进来、还没定起点：自动把设置弹出来一次。之后不再打扰。
     var setupOpen by remember {
