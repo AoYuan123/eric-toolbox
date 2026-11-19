@@ -2,6 +2,7 @@ package com.eric.toolbox.modules.read
 
 import android.annotation.SuppressLint
 import android.content.Context
+import android.net.Uri
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
