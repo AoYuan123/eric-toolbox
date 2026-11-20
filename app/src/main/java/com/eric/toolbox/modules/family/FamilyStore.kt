@@ -33,17 +33,17 @@ object FamilyStore {
         if (!f.isFile) return mutableListOf()
         val text = runCatching { f.readText() }.getOrNull() ?: return mutableListOf()
         val arr = runCatching { JSONArray(text) }.getOrNull() ?: return mutableListOf()
-        return Entry.fromJsonArray(arr)
-            .filter { fileOf(ctx, it.file).isFile } // 文件被手动删掉的孤儿条目不再显示
-            .sortedBy { it.atMs }
-            .toMutableList()
+        return FamilyOrder.sorted(
+            Entry.fromJsonArray(arr).filter { fileOf(ctx, it.file).isFile }, // 文件被手动删掉的孤儿条目不再显示
+        ).toMutableList()
     }
 
     fun save(ctx: Context, list: List<Entry>) {
         val f = indexFile(ctx)
         val tmp = File(f.parentFile, "$INDEX.tmp")
         runCatching {
-            tmp.writeText(Entry.toJsonArray(list.sortedBy { it.atMs }).toString())
+            // 落盘顺序 = 屏幕上的顺序，同时把 ord 重新编号，下次读出来还是这个顺序
+            tmp.writeText(Entry.toJsonArray(FamilyOrder.normalize(list)).toString())
             if (f.exists()) f.delete()
             tmp.renameTo(f)
         }
@@ -65,8 +65,15 @@ object FamilyStore {
 
     fun add(ctx: Context, e: Entry) {
         val list = load(ctx)
-        list.add(e)
+        // 挂在日期对应的位置上，而不是一律甩到末尾——"补一天"补的就是那天。
+        list.add(FamilyOrder.insertIndex(list, e.atMs), e)
         save(ctx, list)
+    }
+
+    /** 拖完顺序落盘。传的是整条绳子的 id 顺序。 */
+    fun reorder(ctx: Context, ids: List<String>) {
+        val list = load(ctx)
+        save(ctx, FamilyOrder.apply(list, ids))
     }
 
     fun update(ctx: Context, e: Entry) {

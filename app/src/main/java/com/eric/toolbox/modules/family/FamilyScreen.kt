@@ -10,10 +10,15 @@ import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -30,15 +35,23 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.withTransform
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -47,6 +60,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
 import androidx.core.content.ContextCompat
 import coil.compose.AsyncImage
 import com.eric.toolbox.ui.C
@@ -56,10 +70,18 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.time.LocalDate
+import kotlin.math.hypot
 import kotlin.math.sin
 
-/** 麻绳的颜色：刻意不用强调色（信号橙），绳子是"背景物件"，抢眼就俗了。 */
-internal val RopeColor = Color(0xFF8A7A5C)
+/**
+ * 麻绳的三层颜色：绳体、亮面、暗面。
+ * 做成实物色、不跟主题走——它模拟的是一根真的绳子，不是一块 UI 面板。
+ * 但在浅色底（骨白 E9E5DD）上必须有足够的对比，所以比原来的 0xFF8A7A5C 更饱和。
+ */
+internal val RopeColor = Color(0xFF8B7550)
+private val RopeLight = Color(0xFFCBB489)
+private val RopeDark = Color(0xFF54472F)
+private val RopeShadow = Color(0x3A2A2015)
 
 /** 纸/声音片的底色。跟主题无关——它们模拟的是实物，白天夜里都是一张纸。 */
 internal val PaperColor = Color(0xFFE6DAC0)
@@ -67,13 +89,94 @@ internal val PaperInk = Color(0xFF4A4238)
 internal val VoiceColor = Color(0xFF242B27)
 
 internal val ITEM_W = 88.dp
-internal val ITEM_H = 206.dp
+internal val ITEM_H = 200.dp
 
-/** 每个挂点的绳子高度（正弦起伏，避免一条死直线）。 */
-private fun nodeY(i: Int): Float = 26f + 7f * sin(i * 0.85f)
+/** 每格顶部这一段只画绳子，照片挂在它下面。 */
+private val ROPE_H = 84.dp
+
+/**
+ * 挂点的绳子高度。
+ *
+ * 原来只有 ±7 的起伏、照片又紧贴在图下方，看上去就是一根打了几个弯的死线；
+ * 现在起伏拉到 ±8.5，并且整列照片跟着绳子的高低走（见 RopeItem 里的 drop），
+ * 才有了"一叠东西压在一根松绳上"的样子。
+ */
+private fun nodeY(i: Int): Float = 66f + 8.5f * sin(i * 0.9f)
+
+/** 两个挂点之间被照片压下去多少。 */
+private const val ROPE_DIP = 8f
 
 /** 每个挂点的倾斜角，按序号固定——同一天再看还是歪的那几度，不会自己变。 */
 private fun tiltOf(i: Int): Float = ((i * 37) % 9 - 4) * 0.62f
+
+/**
+ * 画一段麻绳。
+ *
+ * 以前这里是一条 1.2dp 的细线，所以整条绳子看着像 UI 里的分割线。
+ * 现在照着一根真麻绳画五层：落影 → 暗边 → 绳体 → 高光 → 捻股斜纹。
+ *
+ * 斜纹的相位用"世界坐标"算（[phase] = 这一格在整条绳上的起点 x），
+ * 所以相邻两格的纹路接得上，横向滚动时也不会跳——这是"看着像绳子"的关键，
+ * 纹路一旦错位，立刻又变回一根线。
+ *
+ * @param phase 这一格左端在整条绳子上的 x（像素），由序号乘格宽得来。
+ */
+private fun DrawScope.ropeSegment(x0: Float, y0: Float, x1: Float, y1: Float, phase: Float) {
+    val dip = ROPE_DIP.dp.toPx()
+    val cx = (x0 + x1) / 2f
+    val cy = (y0 + y1) / 2f + dip
+    val path = Path().apply {
+        moveTo(x0, y0)
+        quadraticBezierTo(cx, cy, x1, y1)
+    }
+
+    val w = 3.6.dp.toPx()
+    // 落在纸面上的影子：比绳粗、往下错一点，绳子才"浮"起来
+    withTransform({ translate(0f, 0.9.dp.toPx()) }) {
+        drawPath(path, RopeShadow, style = Stroke(width = w * 1.25f))
+    }
+    // 暗边 + 绳体：两层叠出圆柱的厚度，不是一根扁线
+    drawPath(path, RopeDark, style = Stroke(width = w))
+    drawPath(path, RopeColor, style = Stroke(width = w * 0.68f))
+
+    // 捻股：沿曲线等距取点，量切线取法线，画一小段斜纹。
+    // 亮暗交替，看起来才是拧出来的，不是印刷上去的虚线。
+    val spacing = 6.2.dp.toPx()
+    val n = ((x1 - x0) / spacing).toInt().coerceIn(3, 64)
+    val half = w * 0.5f
+    val skew = w * 0.46f
+    val hair = 0.85.dp.toPx()
+    // 相位只取"一个捻距内的余数"，让相邻两格的纹路在接缝处错开半格。
+    // 直接拿 phase 当偏移会越滚越大，滚到后面整段一道纹都画不出来。
+    val shift = (phase % spacing) / spacing
+    for (k in 0..n) {
+        val t = (k + shift) / n.toFloat()
+        if (t < 0f || t > 1f) continue
+        val it1 = 1f - t
+        val px = it1 * it1 * x0 + 2f * it1 * t * cx + t * t * x1
+        val py = it1 * it1 * y0 + 2f * it1 * t * cy + t * t * y1
+        val tx = 2f * it1 * (cx - x0) + 2f * t * (x1 - cx)
+        val ty = 2f * it1 * (cy - y0) + 2f * t * (y1 - cy)
+        val len = hypot(tx, ty).coerceAtLeast(0.001f)
+        val ux = tx / len
+        val uy = ty / len
+        // 法线 (-uy, ux)：纹路跨过绳体，再沿切线斜一点点，就是拧过的样子
+        val nx = -uy
+        val ny = ux
+        drawLine(
+            color = if (k % 2 == 0) RopeLight else RopeDark,
+            start = Offset(px + nx * half - ux * skew, py + ny * half - uy * skew),
+            end = Offset(px - nx * half + ux * skew, py - ny * half + uy * skew),
+            strokeWidth = hair,
+            cap = StrokeCap.Round,
+        )
+    }
+
+    // 上沿一道高光，压在捻纹之上：光的来源是头顶，绳子才不会发灰
+    withTransform({ translate(0f, -0.9.dp.toPx()) }) {
+        drawPath(path, RopeLight.copy(alpha = 0.34f), style = Stroke(width = 1.0.dp.toPx()))
+    }
+}
 
 private data class PendingShot(val file: File, val atMs: Long, val kind: Kind)
 
@@ -300,17 +403,50 @@ fun FamilyScreen(onBack: () -> Unit) {
                             shelfAt = idx
                             shelfDate = suggestDate(entries, idx)
                         },
+                        onReorder = { ids ->
+                            FamilyStore.reorder(ctx, ids)
+                            reload()
+                        },
                     )
                 }
             }
 
-            Text(
-                if (entries.isEmpty()) "长按上面那片空白" else "长按绳上任意位置，补一天",
-                color = C.Muted.copy(alpha = 0.7f),
-                fontSize = 12.sp,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.fillMaxWidth().padding(vertical = 18.dp),
-            )
+            // 拖动只改"摆在哪"，日期还是拍照那天。摆乱了就给一条回家的路，
+            // 不给的话用户会以为顺序一乱就再也理不回时间线了。
+            if (entries.isEmpty()) {
+                Text(
+                    "长按上面那片空白",
+                    color = C.Muted.copy(alpha = 0.7f),
+                    fontSize = 12.sp,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 18.dp),
+                )
+            } else if (!FamilyOrder.isChronological(entries)) {
+                Row(
+                    Modifier.fillMaxWidth().padding(vertical = 16.dp),
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text("顺序是你摆的 · ", color = C.Muted.copy(alpha = 0.7f), fontSize = 12.sp)
+                    Text(
+                        "按日期理顺",
+                        color = C.Gold.copy(alpha = 0.9f),
+                        fontSize = 12.sp,
+                        modifier = Modifier.clickable {
+                            FamilyStore.reorder(ctx, entries.sortedBy { it.atMs }.map { it.id })
+                            reload()
+                        }.padding(vertical = 4.dp, horizontal = 2.dp),
+                    )
+                }
+            } else {
+                Text(
+                    "长按绳子挂一件 · 长按照片拖到别的位置",
+                    color = C.Muted.copy(alpha = 0.7f),
+                    fontSize = 12.sp,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 18.dp),
+                )
+            }
         }
 
         if (shelfAt != null && !recording) {
@@ -454,12 +590,8 @@ private fun EmptyRope(onLong: () -> Unit) {
         Modifier.fillMaxWidth().padding(horizontal = 32.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Canvas(Modifier.fillMaxWidth().height(60.dp)) {
-            val p = Path().apply {
-                moveTo(0f, 30f)
-                cubicTo(size.width * 0.3f, 40f, size.width * 0.7f, 20f, size.width, 32f)
-            }
-            drawPath(p, RopeColor.copy(alpha = 0.45f), style = Stroke(width = 1.2.dp.toPx()))
+        Canvas(Modifier.fillMaxWidth().height(56.dp)) {
+            ropeSegment(0f, 30.dp.toPx(), size.width, 22.dp.toPx(), 0f)
         }
         Spacer(Modifier.height(20.dp))
         Text("绳子还是空的", color = C.Text, fontSize = 15.sp)
@@ -481,30 +613,141 @@ private fun RopeStrip(
     onOpen: (Entry) -> Unit,
     onPlan: () -> Unit,
     onLong: (Int) -> Unit,
+    onReorder: (List<String>) -> Unit,
 ) {
     val state = rememberLazyListState()
     val density = LocalDensity.current
+    val haptic = LocalHapticFeedback.current
 
-    Box(
-        Modifier.fillMaxWidth().height(ITEM_H).pointerInput(entries.size) {
-            detectTapGestures(
-                onLongPress = { off ->
-                    val pad = with(density) { 20.dp.toPx() }
-                    val unit = with(density) { ITEM_W.toPx() }
-                    val x = state.firstVisibleItemScrollOffset + off.x - pad
-                    val idx = (state.firstVisibleItemIndex + (x / unit).toInt()).coerceIn(0, entries.size)
-                    onLong(idx)
-                },
-            )
-        },
-    ) {
+    // 一次只可能有一件被拖着，所以拖动状态就放这一份，不用每格各建一个
+    var dragId by remember { mutableStateOf<String?>(null) }
+    var dragFrom by remember { mutableIntStateOf(-1) }
+    var dragDx by remember { mutableFloatStateOf(0f) }
+    var edgeDir by remember { mutableFloatStateOf(0f) }
+    var viewport by remember { mutableIntStateOf(0) }
+    // pointerInput 的 lambda 只在 key 变化时才重建，直接捕获 entries 会一直拿着旧顺序；
+    // 走一层 rememberUpdatedState，拖第二次才不会拖错格。
+    val live = rememberUpdatedState(entries)
+
+    val unit = with(density) { ITEM_W.toPx() }
+    val pad = with(density) { 20.dp.toPx() }
+    val edge = with(density) { 56.dp.toPx() }
+
+    fun target(from: Int, dx: Float): Int {
+        val last = live.value.lastIndex
+        return if (last < 0) -1 else (from + Math.round(dx / unit)).coerceIn(0, last)
+    }
+
+    fun commitDrag() {
+        val list = live.value
+        val from = dragFrom
+        if (from !in 0..list.lastIndex) {
+            dragId = null
+            dragFrom = -1
+            dragDx = 0f
+            edgeDir = 0f
+            return
+        }
+        val to = target(from, dragDx)
+        val moved = to in 0..list.lastIndex && to != from
+        // 先清拖动状态、再落盘：这两件事在同一帧里合并成一次重组，
+        // 照片看起来就是"吸进格子"，不会先弹回原位再跳过去。
+        dragId = null
+        dragFrom = -1
+        dragDx = 0f
+        edgeDir = 0f
+        if (moved) {
+            val ids = list.map { it.id }.toMutableList()
+            ids.add(to, ids.removeAt(from))
+            onReorder(ids)
+        }
+    }
+
+    // 拖到边上继续走：每帧滚一点，滚了多少就补给位移多少。
+    // 不补的话手指停着、内容在跑，格数会越算越偏。
+    LaunchedEffect(dragId) {
+        while (dragId != null) {
+            val d = edgeDir
+            if (d != 0f) dragDx += state.scrollBy(d)
+            withFrameNanos { }
+        }
+    }
+
+    Box(Modifier.fillMaxWidth().height(ITEM_H)) {
+        // 长按只认绳子那一条带子。照片上的长按要留给拖动，两个手势不能抢同一块地方
+        Box(
+            Modifier.fillMaxWidth().height(ROPE_H).pointerInput(entries.size) {
+                detectTapGestures(
+                    onLongPress = { off ->
+                        val x = state.firstVisibleItemScrollOffset + off.x - pad
+                        val idx = (state.firstVisibleItemIndex + (x / unit).toInt()).coerceIn(0, entries.size)
+                        onLong(idx)
+                    },
+                )
+            },
+        )
+
         LazyRow(
             state = state,
             contentPadding = PaddingValues(horizontal = 20.dp),
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier.fillMaxSize().onSizeChanged { viewport = it.width },
         ) {
             itemsIndexed(entries, key = { _, e -> e.id }) { i, e ->
-                RopeItem(e, i, mediaDir, onOpen)
+                val dragging = dragId == e.id
+                val to = if (dragFrom < 0) -1 else target(dragFrom, dragDx)
+                // 让位：被拖的那件占了几格，中间的就整体挪一格
+                val dx = when {
+                    dragging -> dragDx
+                    dragFrom < 0 -> 0f
+                    dragFrom < to && i > dragFrom && i <= to -> -unit
+                    dragFrom > to && i >= to && i < dragFrom -> unit
+                    else -> 0f
+                }
+                // 拖在手上的那件必须严格跟手（snap），其余几件才走 170ms 的让位动画。
+                // 都给 tween 的话手指和照片之间会差出小半格，看着像拖着根橡皮筋。
+                val shift by animateFloatAsState(
+                    dx,
+                    if (dragging) snap() else tween(170),
+                    label = "ropeShift",
+                )
+                RopeItem(
+                    e = e,
+                    i = i,
+                    mediaDir = mediaDir,
+                    onOpen = onOpen,
+                    shiftX = shift,
+                    dragging = dragging,
+                    ropeAlpha = if (dragging) 0.2f else 1f,
+                    dragModifier = Modifier.pointerInput(e.id) {
+                        detectDragGesturesAfterLongPress(
+                            onDragStart = {
+                                val from = live.value.indexOfFirst { it.id == e.id }
+                                if (from >= 0) {
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    dragId = e.id
+                                    dragFrom = from
+                                    dragDx = 0f
+                                    edgeDir = 0f
+                                }
+                            },
+                            onDrag = { change, amount ->
+                                change.consume()
+                                dragDx += amount.x
+                                // 离左右边缘多近决定滚不滚。位置全用数值算，
+                                // 不碰 change.position——那个坐标系跟着照片一起动，靠不住
+                                val scrolled = state.firstVisibleItemIndex * unit + state.firstVisibleItemScrollOffset
+                                val sx = dragFrom * unit + dragDx - scrolled + pad
+                                edgeDir = when {
+                                    sx < edge -> -13f
+                                    sx + unit > viewport - edge -> 13f
+                                    else -> 0f
+                                }
+                            },
+                            onDragEnd = { commitDrag() },
+                            onDragCancel = { commitDrag() },
+                        )
+                    },
+                )
             }
             // 纸片挂在最后，长按落在这上面时索引正好等于 entries.size，也就是"挂到最末尾"。
             if (next != null) {
@@ -525,44 +768,35 @@ private fun RopePaper(row: PlanRow, index: Int, onClick: () -> Unit) {
         Modifier.width(96.dp).fillMaxHeight(),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Canvas(Modifier.fillMaxWidth().height(72.dp)) {
-            val y0 = nodeY(index).dp.toPx()
-            val y1 = nodeY(index + 1).dp.toPx()
-            val dip = 4.dp.toPx()
-            val path = Path().apply {
-                moveTo(0f, y0)
-                quadraticBezierTo(size.width / 2f, (y0 + y1) / 2f + dip, size.width, y1)
-            }
-            drawPath(path, RopeColor, style = Stroke(width = 1.2.dp.toPx()))
-            drawLine(
-                Color.White.copy(alpha = 0.18f),
-                Offset(size.width / 2f, (y0 + y1) / 2f + dip * 0.6f),
-                Offset(size.width / 2f, size.height),
-                strokeWidth = 0.8.dp.toPx(),
-            )
+        // 纸片也挂在这根绳上：整格宽照画，绳子才不会断一截
+        Canvas(Modifier.fillMaxWidth().height(ROPE_H)) {
+            ropeSegment(0f, nodeY(index).dp.toPx(), size.width, nodeY(index + 1).dp.toPx(), index * size.width)
         }
 
-        Box(
-            Modifier
-                .width(58.dp)
-                .height(70.dp)
-                .rotate(-2.6f)
-                .clip(RoundedCornerShape(1.dp))
-                .background(PaperColor)
-                .clickable(onClick = onClick),
-        ) {
-            Column(Modifier.fillMaxSize().padding(6.dp)) {
-                Text(FamilyDate.short(row.due), color = PaperInk.copy(alpha = 0.5f), fontSize = 8.sp)
-                Spacer(Modifier.height(3.dp))
-                Text(
-                    row.item.title,
-                    color = PaperInk,
-                    fontSize = 9.5.sp,
-                    lineHeight = 12.sp,
-                    maxLines = 4,
-                    overflow = TextOverflow.Ellipsis,
-                )
+        Box {
+            Box(
+                Modifier
+                    .width(58.dp)
+                    .height(68.dp)
+                    .rotate(-2.6f)
+                    .clip(RoundedCornerShape(1.dp))
+                    .background(PaperColor)
+                    .clickable(onClick = onClick),
+            ) {
+                Column(Modifier.fillMaxSize().padding(6.dp)) {
+                    Text(FamilyDate.short(row.due), color = PaperInk.copy(alpha = 0.5f), fontSize = 8.sp)
+                    Spacer(Modifier.height(3.dp))
+                    Text(
+                        row.item.title,
+                        color = PaperInk,
+                        fontSize = 9.5.sp,
+                        lineHeight = 12.sp,
+                        maxLines = 4,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
             }
+            Clothespin(Modifier.align(Alignment.TopCenter).offset(y = (-17).dp))
         }
 
         Spacer(Modifier.height(9.dp))
@@ -589,56 +823,132 @@ private fun RopePaper(row: PlanRow, index: Int, onClick: () -> Unit) {
 }
 
 @Composable
-private fun RopeItem(e: Entry, i: Int, mediaDir: File, onOpen: (Entry) -> Unit) {
+private fun RopeItem(
+    e: Entry,
+    i: Int,
+    mediaDir: File,
+    onOpen: (Entry) -> Unit,
+    shiftX: Float,
+    dragging: Boolean,
+    ropeAlpha: Float,
+    dragModifier: Modifier,
+) {
     val angle = tiltOf(i)
+    // 照片跟着绳子的高低走：绳子松的地方照片就垂得更低。
+    // 这是这根绳子看起来"有重量"的关键——所有东西排在同一水平线上立刻就是表格了。
+    val drop = nodeY(i) - 66f
+
     Column(
-        Modifier.width(ITEM_W).fillMaxHeight(),
+        Modifier
+            .width(ITEM_W)
+            .fillMaxHeight()
+            .zIndex(if (dragging) 1f else 0f)
+            .graphicsLayer {
+                translationX = shiftX
+                if (dragging) {
+                    // 被提起来的照片：大一点、歪一点，跟手上那件事对上
+                    scaleX = 1.06f
+                    scaleY = 1.06f
+                    rotationZ = (shiftX / 120f).coerceIn(-5f, 5f)
+                }
+            },
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Canvas(Modifier.fillMaxWidth().height(72.dp)) {
-            val y0 = nodeY(i).dp.toPx()
-            val y1 = nodeY(i + 1).dp.toPx()
-            val dip = 4.dp.toPx()
-            val path = Path().apply {
-                moveTo(0f, y0)
-                quadraticBezierTo(size.width / 2f, (y0 + y1) / 2f + dip, size.width, y1)
-            }
-            drawPath(path, RopeColor, style = Stroke(width = 1.2.dp.toPx()))
-            val hangFrom = (y0 + y1) / 2f + dip * 0.6f
-            drawLine(
-                Color.White.copy(alpha = 0.18f),
-                Offset(size.width / 2f, hangFrom),
-                Offset(size.width / 2f, size.height),
-                strokeWidth = 0.8.dp.toPx(),
-            )
+        Canvas(Modifier.fillMaxWidth().height(ROPE_H).alpha(ropeAlpha)) {
+            ropeSegment(0f, nodeY(i).dp.toPx(), size.width, nodeY(i + 1).dp.toPx(), i * size.width)
         }
 
-        Box(
-            Modifier
-                .width(if (e.kind == Kind.AUDIO) 34.dp else 62.dp)
-                .height(78.dp)
-                .rotate(angle)
-                .clip(RoundedCornerShape(1.5.dp))
-                .background(if (e.kind == Kind.AUDIO) VoiceColor else C.Surface)
-                .clickable { onOpen(e) },
-            contentAlignment = Alignment.Center,
+        Column(
+            Modifier.fillMaxWidth().offset(y = drop.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            when (e.kind) {
-                Kind.AUDIO -> VoiceFace(e.durationMs)
-                else -> {
-                    AsyncImage(
-                        model = File(mediaDir, e.file),
-                        contentDescription = null,
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier.fillMaxSize(),
-                    )
-                    if (e.kind == Kind.VIDEO) VideoBadge(Modifier.align(Alignment.BottomEnd))
+            Box {
+                Box(
+                    Modifier
+                        .width(if (e.kind == Kind.AUDIO) 34.dp else 62.dp)
+                        .height(78.dp)
+                        .rotate(angle)
+                        .clip(RoundedCornerShape(1.5.dp))
+                        .background(if (e.kind == Kind.AUDIO) VoiceColor else C.Surface)
+                        // 声音片没有可按的画，不接管长按，免得拖到一半发现拖不动
+                        .then(if (e.kind == Kind.AUDIO) Modifier else dragModifier)
+                        .clickable { onOpen(e) },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    when (e.kind) {
+                        Kind.AUDIO -> VoiceFace(e.durationMs)
+                        else -> {
+                            AsyncImage(
+                                model = File(mediaDir, e.file),
+                                contentDescription = null,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.fillMaxSize(),
+                            )
+                            if (e.kind == Kind.VIDEO) VideoBadge(Modifier.align(Alignment.BottomEnd))
+                        }
+                    }
                 }
+                // 木夹子：咬住绳子、夹住照片上沿。没有它，照片就像凭空贴在纸上
+                Clothespin(Modifier.align(Alignment.TopCenter).offset(y = (-19).dp))
             }
-        }
 
-        Spacer(Modifier.height(9.dp))
-        Text(FamilyDate.short(e.atMs), color = C.Muted, fontSize = 11.sp)
+            Spacer(Modifier.height(9.dp))
+            Text(FamilyDate.short(e.atMs), color = C.Muted, fontSize = 11.sp)
+        }
+    }
+}
+
+/** 一枚木夹子，17×26dp，画在照片上沿、咬住绳子。 */
+@Composable
+private fun Clothespin(modifier: Modifier = Modifier) {
+    Canvas(modifier.size(width = 17.dp, height = 26.dp)) {
+        val w = size.width
+        val h = size.height
+        val wood = Color(0xFFC2A478)
+        val grain = Color(0xFF8D6F46)
+        val metal = Color(0xFF918E86)
+        val cw = 4.8.dp.toPx()
+        val gap = 1.7.dp.toPx()
+        val left = w / 2f - gap / 2f - cw
+        val right = w / 2f + gap / 2f
+        val r = CornerRadius(1.3.dp.toPx())
+
+        // 影子：夹子是有厚度的，直接两根木条看着像印刷
+        drawRoundRect(
+            Color(0x2A000000),
+            Offset(left + 0.8.dp.toPx(), 1.0.dp.toPx()),
+            Size(cw * 2 + gap, h - 1.6.dp.toPx()),
+            r,
+        )
+        drawRoundRect(wood, Offset(left, 0f), Size(cw, h), r)
+        drawRoundRect(wood, Offset(right, 0f), Size(cw, h), r)
+        drawLine(
+            grain.copy(alpha = 0.5f),
+            Offset(left + cw * 0.62f, 2.dp.toPx()),
+            Offset(left + cw * 0.62f, h - 3.dp.toPx()),
+            0.7.dp.toPx(),
+        )
+        drawLine(
+            grain.copy(alpha = 0.5f),
+            Offset(right + cw * 0.38f, 2.dp.toPx()),
+            Offset(right + cw * 0.38f, h - 3.dp.toPx()),
+            0.7.dp.toPx(),
+        )
+        // 弹簧箍
+        val bandH = 3.4.dp.toPx()
+        val bandY = h * 0.36f
+        drawRoundRect(
+            metal,
+            Offset(left - 0.6.dp.toPx(), bandY),
+            Size(cw * 2 + gap + 1.2.dp.toPx(), bandH),
+            CornerRadius(1.dp.toPx()),
+        )
+        drawLine(
+            Color.White.copy(alpha = 0.45f),
+            Offset(left, bandY + bandH * 0.34f),
+            Offset(right + cw, bandY + bandH * 0.34f),
+            0.6.dp.toPx(),
+        )
     }
 }
 
