@@ -874,8 +874,7 @@ private fun RopeItem(
                         .rotate(angle)
                         .clip(RoundedCornerShape(1.5.dp))
                         .background(if (e.kind == Kind.AUDIO) VoiceColor else C.Surface)
-                        // 声音片没有可按的画，不接管长按，免得拖到一半发现拖不动
-                        .then(if (e.kind == Kind.AUDIO) Modifier else dragModifier)
+                        .then(dragModifier)
                         .clickable { onOpen(e) },
                     contentAlignment = Alignment.Center,
                 ) {
