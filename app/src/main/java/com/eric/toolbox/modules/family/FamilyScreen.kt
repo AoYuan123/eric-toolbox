@@ -131,8 +131,12 @@ private fun DrawScope.ropeSegment(x0: Float, y0: Float, x1: Float, y1: Float, ph
     }
 
     val w = 3.6.dp.toPx()
+    // withTransform 的 lambda 是 DrawTransform 的接收者，不是 DrawScope——
+    // 想在里面用 dp 得先在外面换算好，不然 toPx() 找不到接收者（编不过）
+    val shadowDy = 0.9.dp.toPx()
+    val hiDy = -0.9.dp.toPx()
     // 落在纸面上的影子：比绳粗、往下错一点，绳子才"浮"起来
-    withTransform({ translate(0f, 0.9.dp.toPx()) }) {
+    withTransform({ translate(0f, shadowDy) }) {
         drawPath(path, RopeShadow, style = Stroke(width = w * 1.25f))
     }
     // 暗边 + 绳体：两层叠出圆柱的厚度，不是一根扁线
@@ -173,7 +177,7 @@ private fun DrawScope.ropeSegment(x0: Float, y0: Float, x1: Float, y1: Float, ph
     }
 
     // 上沿一道高光，压在捻纹之上：光的来源是头顶，绳子才不会发灰
-    withTransform({ translate(0f, -0.9.dp.toPx()) }) {
+    withTransform({ translate(0f, hiDy) }) {
         drawPath(path, RopeLight.copy(alpha = 0.34f), style = Stroke(width = 1.0.dp.toPx()))
     }
 }
