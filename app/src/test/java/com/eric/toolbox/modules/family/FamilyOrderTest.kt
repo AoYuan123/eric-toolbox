@@ -32,10 +32,11 @@ class FamilyOrderTest {
 
     @Test
     fun `动过手以后听手的`() {
-        // b 被拖到了最前面：ord 比谁都小
-        val moved = listOf(c, b.copy(ord = 500L), a)
-        val out = FamilyOrder.sorted(moved)
-        assertEquals(listOf("b", "c", "a"), out.map { it.id })
+        // 落盘时整条绳子都会被重新编号，所以读回来的状态是"每条都有 ord"
+        val moved = FamilyOrder.normalize(listOf(b, c, a))
+        assertEquals(listOf("b", "c", "a"), FamilyOrder.sorted(moved).map { it.id })
+        // 顺序被彻底翻转，跟日期完全相反
+        assertFalse(FamilyOrder.isChronological(FamilyOrder.sorted(moved)))
     }
 
     @Test
