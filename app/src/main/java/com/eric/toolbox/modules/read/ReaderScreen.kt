@@ -278,8 +278,18 @@ fun ReaderScreen(bookId: String, onBack: () -> Unit) {
                                         val h = pageHtml[0] ?: ""
                                         return WebResourceResponse("text/html", "utf-8", 200, "OK", mapOf("Cache-Control" to "no-store"), ByteArrayInputStream(h.toByteArray(Charsets.UTF_8)))
                                     }
-                                    val data = content?.resource(path)
-                                    if (data != null) return WebResourceResponse(content!!.mime(path), null, ByteArrayInputStream(data))
+                                    // 书里的图片/样式/CSS 里引的字体都走这里。取不到就给 404，
+                                    // 绝不能让异常抛出去——抛出去整章会一起废掉。
+                                    val asset = runCatching { content?.asset(path) }.getOrNull()
+                                        ?: runCatching {
+                                            // 有的书 href 是二次转义（%2520 这种），再解一次
+                                            val again = java.net.URLDecoder.decode(path, "UTF-8")
+                                            if (again != path) content?.asset(again) else null
+                                        }.getOrNull()
+                                    if (asset != null) {
+                                        return WebResourceResponse(asset.mime, null, 200, "OK", emptyMap(), ByteArrayInputStream(asset.bytes))
+                                    }
+                                    android.util.Log.w("Reader", "书内资源没找到：" + path)
                                 }
                                 // 书里引用的网络资源一律不加载（不联网、不被追踪）
                                 return WebResourceResponse("text/plain", "utf-8", 404, "blocked", emptyMap(), ByteArrayInputStream(ByteArray(0)))
@@ -305,7 +315,11 @@ fun ReaderScreen(bookId: String, onBack: () -> Unit) {
                         })
                     }
                 },
-                update = { it.keepScreenOn = rs.keepScreenOn; it.setBackgroundColor(android.graphics.Color.parseColor(col.bg)) },
+                update = { it.keepScreenOn = rs.keepScreenOn; it.setBackgroundColor(android.graphics.Color.parseColor(col.bg))
+                    // 书解析完比 WebView 建好晚一步时，factory 里那次 load 会因为 content 还是 null 直接返回，
+                    // 页面就永远空着。这里补一次（pageHtml 为空说明还没成功载入过）
+                    if (content != null && pageHtml[0] == null) it.post { load(chapter, fraction) }
+                },
             )
             val left = ReadLogic.minutesLeft(c.chapterChars.getOrElse(chapter) { 0 }, fraction, if (cpm > 0) cpm else ReadLogic.defaultCpm(c.cjk))
             val bookPct = (ReadLogic.bookFraction(c.chapterChars, chapter, fraction) * 100).toInt()

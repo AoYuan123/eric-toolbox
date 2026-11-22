@@ -72,7 +72,7 @@ object ReaderHtml {
             html{height:100vh;overflow:hidden !important;margin:0 !important;padding:0 !important;}
             body{box-sizing:border-box;height:100vh;margin:0 !important;padding:0 ${s.margin}px !important;
                  column-width:calc(100vw - ${2 * s.margin}px);column-gap:${2 * s.margin}px;column-fill:auto;overflow:visible !important;}
-            img,svg{max-height:calc(100vh - 8px) !important;object-fit:contain;break-inside:avoid;}
+            img,svg{max-height:calc(100vh - 26px) !important;object-fit:contain;break-inside:avoid;}
             h1,h2,h3{break-after:avoid;}
         """.trimIndent() else """
             html{margin:0 !important;padding:0 !important;}
@@ -193,7 +193,11 @@ object ReaderHtml {
             var d=document.documentElement, b=document.body;
             d.style.setProperty('height',h+'px','important'); b.style.setProperty('height',h+'px','important');
             b.style.setProperty('column-width',(w-2*M)+'px','important'); b.style.setProperty('column-gap',(2*M)+'px','important');
-            document.querySelectorAll('img,svg').forEach(function(e){ e.style.setProperty('max-height',(h-8)+'px','important'); });
+            // 用一条样式表统一限制图片高度：晚加载出来的图也能吃到，不用每张去写 style。
+            // 留 26px 余量，否则满页大图跟上一段文字抢同一栏，会被裁掉看不见。
+            var st=document.getElementById('__sz');
+            if(!st){ st=document.createElement('style'); st.id='__sz'; d.appendChild(st); }
+            st.textContent='img,svg{max-height:'+(h-26)+'px !important;}';
             return true; }
           var started=false;
           function start(){ if(started) return; if(!size()){ setTimeout(start,100); return; } started=true; pad(); R.ready(pages()); }

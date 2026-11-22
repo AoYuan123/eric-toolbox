@@ -18,6 +18,11 @@ abstract class BookContent : AutoCloseable {
     abstract fun mime(path: String): String
     abstract val toc: List<Pair<String, Int>>
 
+    /** 一份书内资源：内容和类型。类型必须准确，WebView 认不出类型就直接不画（图片一片空白）。 */
+    data class Asset(val bytes: ByteArray, val mime: String)
+
+    open fun asset(path: String): Asset? = resource(path)?.let { Asset(it, mime(path)) }
+
     private val textCache = HashMap<Int, String>()
     fun chapterText(i: Int): String = synchronized(textCache) { textCache.getOrPut(i) { ReadLogic.stripTags(chapterHtml(i)) } }
     val chapterChars: List<Int> by lazy { (0 until chapterCount).map { chapterText(it).length.coerceAtLeast(1) } }
@@ -56,17 +61,55 @@ abstract class BookContent : AutoCloseable {
             "xhtml", "xht" -> "application/xhtml+xml"
             "html", "htm" -> "text/html"
             "css" -> "text/css"
-            "jpg", "jpeg" -> "image/jpeg"
+            "jpg", "jpeg", "jpe", "jfif" -> "image/jpeg"
             "png" -> "image/png"
             "gif" -> "image/gif"
-            "svg" -> "image/svg+xml"
+            "svg", "svgz" -> "image/svg+xml"
             "webp" -> "image/webp"
+            "bmp" -> "image/bmp"
+            "ico" -> "image/x-icon"
+            "avif" -> "image/avif"
             "otf" -> "font/otf"
             "ttf" -> "font/ttf"
             "woff" -> "font/woff"
             "woff2" -> "font/woff2"
             else -> "application/octet-stream"
         }
+
+        /**
+         * 按文件头判断真实类型。扩展名和 OPF 里的 media-type 都靠不住——见过 .jfif、.tif 的插图，
+         * 也见过 manifest 干脆不写 media-type 的书；类型一旦是 application/octet-stream 或空串，
+         * WebView 不认，图片就是一片空白（不报错，最容易被当成"代码没写"）。
+         */
+        fun sniff(bytes: ByteArray, fallback: String): String {
+            fun b(i: Int) = if (i < bytes.size) bytes[i].toInt() and 0xFF else -1
+            return when {
+                bytes.size > 3 && b(0) == 0xFF && b(1) == 0xD8 && b(2) == 0xFF -> "image/jpeg"
+                bytes.size > 8 && b(0) == 0x89 && b(1) == 0x50 && b(2) == 0x4E && b(3) == 0x47 -> "image/png"
+                bytes.size > 6 && b(0) == 0x47 && b(1) == 0x49 && b(2) == 0x46 -> "image/gif"
+                bytes.size > 12 && b(0) == 0x52 && b(1) == 0x49 && b(2) == 0x46 && b(3) == 0x46 &&
+                    b(8) == 0x57 && b(9) == 0x45 && b(10) == 0x42 && b(11) == 0x50 -> "image/webp"
+                bytes.size > 2 && b(0) == 0x42 && b(1) == 0x4D -> "image/bmp"
+                bytes.size > 5 && b(0) == 0x00 && b(1) == 0x00 && b(2) == 0x01 && b(3) == 0x00 -> "image/x-icon"
+                // SVG 是文本，看开头有没有 <svg / <?xml（跳过 BOM 和空白）
+                fallback.startsWith("image/svg") || looksLikeSvg(bytes) -> "image/svg+xml"
+                // 字体也顺手认一下，书自带字体判断错了会整个乱码
+                bytes.size > 4 && b(0) == 0x4F && b(1) == 0x54 && b(2) == 0x54 && b(3) == 0x4F -> "font/otf"
+                bytes.size > 4 && b(0) == 0x77 && b(1) == 0x4F && b(2) == 0x46 && b(3) == 0x32 -> "font/woff2"
+                bytes.size > 4 && b(0) == 0x77 && b(1) == 0x4F && b(2) == 0x46 && b(3) == 0x46 -> "font/woff"
+                else -> fallback.ifBlank { "application/octet-stream" }
+            }
+        }
+
+        private fun looksLikeSvg(bytes: ByteArray): Boolean {
+            val head = String(bytes, 0, minOf(bytes.size, 512), Charsets.UTF_8).trimStart('\uFEFF', '\u0000', ' ', '\n', '\r', '\t')
+            if (!head.startsWith("<")) return false
+            val lower = head.lowercase()
+            // 章节文件也以 <?xml 开头、里面可能内嵌 <svg>，别把整章当图片
+            if (lower.startsWith("<!doctype") || lower.contains("<html")) return false
+            return lower.startsWith("<svg") || (lower.startsWith("<?xml") && lower.contains("<svg"))
+        }
+
     }
 }
 
@@ -78,6 +121,10 @@ private class EpubContent(private val epub: Epub) : BookContent() {
     override fun chapterHtml(i: Int): String = epub.read(epub.spine[i])?.let { decode(it) } ?: ""
     override fun resource(path: String) = epub.read(path)
     override fun mime(path: String) = epub.mediaType(path) ?: mimeOf(path)
+    override fun asset(path: String): Asset? {
+        val b = epub.read(path) ?: return null
+        return Asset(b, sniff(b, mime(path)))
+    }
     override val toc: List<Pair<String, Int>> by lazy {
         epub.toc.mapNotNull { t -> epub.spineIndexOf(t.href).takeIf { it >= 0 }?.let { (("　".repeat(t.level.coerceAtMost(3))) + t.title) to it } }
     }

@@ -24,10 +24,44 @@ class Epub private constructor(private val zip: ZipFile) : AutoCloseable {
     var toc: List<TocEntry> = emptyList(); private set
     var coverPath: String? = null; private set
     private val mediaTypes = HashMap<String, String>()
+    /** 小写路径 → zip 里的真实条目名；按文件名（小写）→ 所有同名条目。 */
+    private val byLower = HashMap<String, String>()
+    private val byBase = HashMap<String, MutableList<String>>()
 
-    fun has(path: String) = zip.getEntry(path) != null
-    fun read(path: String): ByteArray? = zip.getEntry(path)?.let { e -> zip.getInputStream(e).use { it.readBytes() } }
-    fun mediaType(path: String): String? = mediaTypes[path]
+    /**
+     * 书里的图片/样式路径跟 zip 里的条目名经常对不上，也是"有些图片不显示"最常见的原因：
+     * 大小写不一致、目录名写错、多一层 ./、Windows 打包留下的反斜杠、href 里写了 %20 而条目里是空格。
+     * 所以取资源时先按原样找，找不到再依次放宽：忽略大小写 → 只认文件名（唯一同名才认）。
+     */
+    fun realPath(path: String): String? {
+        val p = path.replace('\\', '/').trimStart('/')
+        if (p.isEmpty()) return null
+        if (zip.getEntry(p) != null) return p
+        byLower[p.lowercase()]?.let { if (zip.getEntry(it) != null) return it }
+        val cands = byBase[p.substringAfterLast('/').lowercase()] ?: return null
+        if (cands.size == 1) return cands[0]
+        // 同名的不止一个（比如 cover.jpg 在好几个目录下都有）：挑路径尾巴重合最多的那个
+        return cands.map { it to commonSuffix(p, it) }.maxByOrNull { it.second }?.takeIf { it.second > 0 }?.first
+    }
+
+    fun has(path: String) = realPath(path) != null
+
+    fun read(path: String): ByteArray? {
+        val real = realPath(path) ?: return null
+        // WebView 会从多个后台线程同时来取图，zip 偶发读失败（尤其是并发/SD 卡上的大文件），
+        // 失败就重试一次——不然表现就是"这张图随机不显示，重进又有了"。
+        repeat(2) {
+            val e = zip.getEntry(real) ?: return null
+            runCatching { zip.getInputStream(e).use { it.readBytes() } }.getOrNull()?.let { return it }
+        }
+        return null
+    }
+
+    /** media-type：OPF 里没写就是空串，这里统一当"没声明"返回 null，交给上层按文件头判断。 */
+    fun mediaType(path: String): String? {
+        val real = realPath(path) ?: path
+        return (mediaTypes[real] ?: mediaTypes[path])?.takeIf { it.isNotBlank() }
+    }
 
     /** 目录项对应 spine 的第几章（找不到返回 -1）。 */
     fun spineIndexOf(href: String): Int = spine.indexOf(href.substringBefore('#'))
@@ -80,6 +114,14 @@ class Epub private constructor(private val zip: ZipFile) : AutoCloseable {
 
         fun dirOf(path: String) = path.substringBeforeLast('/', "")
 
+        /** 两个路径从末尾数起有几段一样（用来挑"最像"的那个同名文件）。 */
+        private fun commonSuffix(a: String, b: String): Int {
+            val x = a.lowercase().split('/'); val y = b.lowercase().split('/')
+            var n = 0
+            while (n < x.size && n < y.size && x[x.size - 1 - n] == y[y.size - 1 - n]) n++
+            return n
+        }
+
         private fun Element.children(local: String): List<Element> {
             val out = ArrayList<Element>()
             val nl = childNodes
@@ -96,6 +138,13 @@ class Epub private constructor(private val zip: ZipFile) : AutoCloseable {
     }
 
     private fun parse() {
+        // 先把 zip 目录扫一遍建索引，后面按路径取资源都靠它兜底
+        for (e in zip.entries()) {
+            val name = e.name.replace('\\', '/').trimStart('/')
+            if (name.isEmpty() || name.endsWith("/")) continue
+            byLower[name.lowercase()] = name
+            byBase.getOrPut(name.substringAfterLast('/').lowercase()) { ArrayList() } += name
+        }
         val container = read("META-INF/container.xml") ?: throw java.io.IOException("不是 EPUB（缺少 container.xml）")
         val opfPath = parseXml(container).all("rootfile").firstOrNull()?.getAttribute("full-path")?.takeIf { it.isNotBlank() }
             ?: throw java.io.IOException("EPUB 结构不完整（没有 OPF）")
