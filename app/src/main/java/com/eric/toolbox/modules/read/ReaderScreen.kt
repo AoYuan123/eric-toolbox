@@ -118,7 +118,15 @@ fun ReaderScreen(bookId: String, onBack: () -> Unit) {
     LaunchedEffect(bookId) {
         val b = book ?: run { err = "书不在书架上了"; return@LaunchedEffect }
         try {
-            content = withContext(Dispatchers.IO) { BookContent.open(Library.bookFile(ctx, b), b.format) }
+            content = withContext(Dispatchers.IO) {
+                val cc = BookContent.open(Library.bookFile(ctx, b), b.format)
+                // 章节字数表是把整本书 stripTags 一遍（两百章的书要好几秒），
+                // 主线程第一次读它时算，表现就是"打开特别卡、这期间点翻页没反应"。
+                // 趁还在 IO 线程先把这两项算掉，界面之后读到的都是缓存。
+                cc.chapterChars
+                cc.cjk
+                cc
+            }
             Library.update(ctx, b.id) { it.copy(lastReadAt = System.currentTimeMillis()) }
             if (cpm <= 0) cpm = ReadLogic.defaultCpm(content!!.cjk)
         } catch (e: Exception) { err = "打不开这本书：${e.message}" }
@@ -315,10 +323,11 @@ fun ReaderScreen(bookId: String, onBack: () -> Unit) {
                         })
                     }
                 },
-                update = { it.keepScreenOn = rs.keepScreenOn; it.setBackgroundColor(android.graphics.Color.parseColor(col.bg))
+                update = { wv -> wv.keepScreenOn = rs.keepScreenOn; wv.setBackgroundColor(android.graphics.Color.parseColor(col.bg))
                     // 书解析完比 WebView 建好晚一步时，factory 里那次 load 会因为 content 还是 null 直接返回，
-                    // 页面就永远空着。这里补一次（pageHtml 为空说明还没成功载入过）
-                    if (content != null && pageHtml[0] == null) it.post { load(chapter, fraction) }
+                    // 页面就永远空着。补一次——判断必须放在 post 里面：
+                    // 放外面的话打开书的瞬间会连续排好几个 load，页面被反复重建，表现就是"卡、翻页没反应"。
+                    if (content != null && pageHtml[0] == null) wv.post { if (pageHtml[0] == null) load(chapter, fraction) }
                 },
             )
             val left = ReadLogic.minutesLeft(c.chapterChars.getOrElse(chapter) { 0 }, fraction, if (cpm > 0) cpm else ReadLogic.defaultCpm(c.cjk))

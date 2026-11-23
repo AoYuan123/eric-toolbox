@@ -189,15 +189,17 @@ object ReaderHtml {
             var w=W(), sw=document.scrollingElement.scrollWidth, p=Math.max(1, Math.round(sw / w));
             if(sw < p*w){ var d=document.createElement('div'); d.id='__pad'; d.style.cssText='position:absolute;top:0;width:1px;height:1px;left:'+(p*w-1)+'px'; document.documentElement.appendChild(d); } }
           // 部分手机 WebView 在阅读区还没排好时把 100vh 算成接近 0、之后不再更新，导致每页只有一行（11-07 真机）：改用实际像素
+          var szH=0;
           function size(){ if(!paged) return true; var h=window.innerHeight, w=window.innerWidth; if(h<80||w<80) return false;
             var d=document.documentElement, b=document.body;
             d.style.setProperty('height',h+'px','important'); b.style.setProperty('height',h+'px','important');
             b.style.setProperty('column-width',(w-2*M)+'px','important'); b.style.setProperty('column-gap',(2*M)+'px','important');
             // 用一条样式表统一限制图片高度：晚加载出来的图也能吃到，不用每张去写 style。
+            // 只在高度变了才改，否则每次 resize 都写一遍会触发全文档重排。
             // 留 26px 余量，否则满页大图跟上一段文字抢同一栏，会被裁掉看不见。
-            var st=document.getElementById('__sz');
-            if(!st){ st=document.createElement('style'); st.id='__sz'; d.appendChild(st); }
-            st.textContent='img,svg{max-height:'+(h-26)+'px !important;}';
+            if(szH!==h){ szH=h; var st=document.getElementById('__sz');
+              if(!st){ st=document.createElement('style'); st.id='__sz'; d.appendChild(st); }
+              st.textContent='img,svg{max-height:'+(h-26)+'px !important;}'; }
             return true; }
           var started=false;
           function start(){ if(started) return; if(!size()){ setTimeout(start,100); return; } started=true; pad(); R.ready(pages()); }

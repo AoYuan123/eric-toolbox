@@ -27,6 +27,8 @@ class Epub private constructor(private val zip: ZipFile) : AutoCloseable {
     /** 小写路径 → zip 里的真实条目名；按文件名（小写）→ 所有同名条目。 */
     private val byLower = HashMap<String, String>()
     private val byBase = HashMap<String, MutableList<String>>()
+    /** 查过的路径结果缓存（"" 表示确实没有）：图片每次翻页都会被重新请求，别每次都去 zip 里翻。 */
+    private val pathCache = HashMap<String, String>()
 
     /**
      * 书里的图片/样式路径跟 zip 里的条目名经常对不上，也是"有些图片不显示"最常见的原因：
@@ -36,6 +38,13 @@ class Epub private constructor(private val zip: ZipFile) : AutoCloseable {
     fun realPath(path: String): String? {
         val p = path.replace('\\', '/').trimStart('/')
         if (p.isEmpty()) return null
+        synchronized(pathCache) { pathCache[p]?.let { return if (it.isEmpty()) null else it } }
+        val found = lookup(p)
+        synchronized(pathCache) { if (pathCache.size < 4096) pathCache[p] = found ?: "" }
+        return found
+    }
+
+    private fun lookup(p: String): String? {
         if (zip.getEntry(p) != null) return p
         byLower[p.lowercase()]?.let { if (zip.getEntry(it) != null) return it }
         val cands = byBase[p.substringAfterLast('/').lowercase()] ?: return null
