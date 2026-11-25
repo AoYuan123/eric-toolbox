@@ -5,15 +5,23 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Casino
+import androidx.compose.material.icons.filled.ListAlt
+import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.RestaurantMenu
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -22,6 +30,11 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
@@ -43,16 +56,20 @@ object MealModule : ToolModule {
 }
 
 private val mealColors = lightColorScheme(
-    primary = Color(0xFF496653),
-    secondaryContainer = Color(0xFFE5EFE7),
-    background = Color(0xFFF7F9F6),
-    surface = Color(0xFFF7F9F6),
+    primary = Color(0xFF4D705D),
+    onPrimary = Color.White,
+    secondaryContainer = Color(0xFFDDECE0),
+    onSecondaryContainer = Color(0xFF284936),
+    background = Color(0xFFF5F8F4),
+    surface = Color(0xFFFCFDFB),
+    onSurface = Color(0xFF23302A),
+    onSurfaceVariant = Color(0xFF56665C),
+    outlineVariant = Color(0xFFDCE6DE),
 )
 private val dishCategories = listOf("荤菜", "素菜", "凉菜", "汤类", "主食")
 private val categories = listOf("最受欢迎", "上次点了", "全部", "家乡菜") + dishCategories
 private val modes = listOf("孕期", "产后", "全家")
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun MealScreen(onBack: () -> Unit) {
     val context = LocalContext.current
@@ -124,26 +141,52 @@ private fun MealScreen(onBack: () -> Unit) {
         Scaffold(
             modifier = Modifier.fillMaxSize(),
             topBar = {
-                TopAppBar(
-                    title = { Text(detail?.name ?: if (menu) "今日菜单" else tab, fontSize = 19.sp) },
-                    navigationIcon = { TextButton(onClick = { back() }) { Text("返回") } },
-                )
+                Row(
+                    Modifier.fillMaxWidth().statusBarsPadding().height(48.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    IconButton(onClick = { back() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "返回") }
+                    Text(detail?.name ?: if (menu) "今日菜单" else tab, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
+                }
             },
             bottomBar = {
-                if (detail == null && !menu) Column(Modifier.navigationBarsPadding().padding(horizontal = 10.dp)) {
+                if (detail == null && !menu) Column(
+                    Modifier.fillMaxWidth().background(mealColors.surface).navigationBarsPadding(),
+                ) {
+                    HorizontalDivider(color = mealColors.outlineVariant)
                     if (tab == "点菜") Row(
-                        Modifier.fillMaxWidth(),
+                        Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 3.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Text(
                             if (selected.isEmpty()) "还没点菜" else "已选 ${selected.size} 道 · 共 ${selected.sumOf { cart[it.id] ?: 0 }} 份",
                             Modifier.weight(1f), fontSize = 13.sp,
                         )
-                        Button(enabled = selected.isNotEmpty(), onClick = { menu = true }) { Text("生成菜单") }
+                        Button(
+                            enabled = selected.isNotEmpty(),
+                            onClick = { menu = true },
+                            colors = ButtonDefaults.buttonColors(
+                                disabledContainerColor = mealColors.secondaryContainer,
+                                disabledContentColor = mealColors.onSurfaceVariant,
+                            ),
+                            contentPadding = PaddingValues(horizontal = 16.dp),
+                        ) { Text("生成菜单", fontSize = 13.sp) }
                     }
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-                        for (item in listOf("随机吃什么", "点菜", "菜品管理")) {
-                            FilterChip(tab == item, { tab = item }, { Text(item, fontSize = 12.sp) })
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 2.dp)) {
+                        val icons = listOf(Icons.Filled.Casino, Icons.Filled.RestaurantMenu, Icons.Filled.ListAlt)
+                        for ((index, item) in listOf("随机吃什么", "点菜", "菜品管理").withIndex()) {
+                            val active = tab == item
+                            val color = if (active) mealColors.primary else mealColors.onSurfaceVariant
+                            Column(
+                                Modifier.weight(1f).clip(RoundedCornerShape(12.dp))
+                                    .background(if (active) mealColors.secondaryContainer else Color.Transparent)
+                                    .clickable(role = Role.Tab) { tab = item }.heightIn(min = 48.dp).padding(4.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.Center,
+                            ) {
+                                Icon(icons[index], null, Modifier.size(17.dp), tint = color)
+                                Text(item, fontSize = 11.sp, color = color)
+                            }
                         }
                     }
                 }
@@ -258,31 +301,81 @@ private fun MealScreen(onBack: () -> Unit) {
                         }
                     }
                 }
-                else -> Column(body, verticalArrangement = Arrangement.spacedBy(7.dp)) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        for (item in modes) FilterChip(mode == item, {
-                            mode = item
-                            prefs.edit().putString("mode", mode).apply()
-                        }, { Text(item) })
+                else -> Column(body, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(
+                        Modifier.fillMaxWidth().clip(RoundedCornerShape(22.dp))
+                            .background(Color(0xFFE8F0E8)).padding(3.dp),
+                    ) {
+                        for (item in modes) {
+                            val active = mode == item
+                            Box(
+                                Modifier.weight(1f).clip(RoundedCornerShape(20.dp))
+                                    .background(if (active) mealColors.primary else Color.Transparent)
+                                    .clickable(role = Role.Tab) {
+                                        mode = item
+                                        prefs.edit().putString("mode", mode).apply()
+                                    }.heightIn(min = 42.dp),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Text(item, fontSize = 13.sp, color = if (active) Color.White else mealColors.onSurfaceVariant)
+                            }
+                        }
                     }
-                    OutlinedTextField(search, { search = it }, Modifier.fillMaxWidth(), singleLine = true,
-                        placeholder = { Text("搜菜名或食材") })
-                    TextButton(onClick = {
-                        withStaple = selected.isNotEmpty()
-                        draw = suggestions()
-                        tab = "随机吃什么"
-                    }) { Text(if (selected.isEmpty()) "手气推荐 · 一荤一素一汤" else "帮我搭一餐") }
-                    Row(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Column(Modifier.width(94.dp).verticalScroll(rememberScrollState())) {
+                    BasicTextField(
+                        value = search,
+                        onValueChange = { search = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        textStyle = TextStyle(color = mealColors.onSurface, fontSize = 14.sp),
+                        cursorBrush = SolidColor(mealColors.primary),
+                        decorationBox = { field ->
+                            Row(
+                                Modifier.clip(RoundedCornerShape(22.dp)).background(mealColors.surface)
+                                    .border(1.dp, mealColors.outlineVariant, RoundedCornerShape(22.dp))
+                                    .heightIn(min = 44.dp).padding(horizontal = 13.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                Icon(Icons.Filled.Search, null, Modifier.size(18.dp), tint = mealColors.primary)
+                                Box(Modifier.weight(1f)) {
+                                    if (search.isEmpty()) Text("搜菜名或食材", fontSize = 14.sp, color = mealColors.onSurfaceVariant)
+                                    field()
+                                }
+                            }
+                        },
+                    )
+                    Row(
+                        Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
+                            .background(mealColors.secondaryContainer)
+                            .clickable(role = Role.Button) {
+                                withStaple = selected.isNotEmpty()
+                                draw = suggestions()
+                                tab = "随机吃什么"
+                            }.heightIn(min = 44.dp).padding(horizontal = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Icon(Icons.Filled.Casino, null, Modifier.size(18.dp), tint = mealColors.primary)
+                        Text(if (selected.isEmpty()) "手气推荐 · 一荤一素一汤" else "帮我搭一餐",
+                            color = mealColors.onSecondaryContainer, fontSize = 13.sp)
+                    }
+                    Row(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Column(
+                            Modifier.width(88.dp).clip(RoundedCornerShape(12.dp))
+                                .background(Color(0xFFEFF4EE)).verticalScroll(rememberScrollState()).padding(3.dp),
+                            verticalArrangement = Arrangement.spacedBy(2.dp),
+                        ) {
                             for (item in categories) {
-                                val color = if (category == item) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent
+                                val active = category == item
+                                val color = if (active) mealColors.secondaryContainer else Color.Transparent
                                 Row(
                                     Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(color)
-                                        .clickable { category = item }.heightIn(min = 43.dp).padding(horizontal = 5.dp),
+                                        .clickable(role = Role.Tab) { category = item }.heightIn(min = 44.dp).padding(horizontal = 4.dp),
                                     verticalAlignment = Alignment.CenterVertically,
                                 ) {
-                                    Text(item, Modifier.weight(1f), fontSize = 12.sp)
-                                    Text(group(item).size.toString(), fontSize = 11.sp)
+                                    Text(item, Modifier.weight(1f), fontSize = 11.sp,
+                                        fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal)
+                                    Text(group(item).size.toString(), fontSize = 11.sp, color = mealColors.primary)
                                 }
                             }
                         }
@@ -310,13 +403,28 @@ private fun MealScreen(onBack: () -> Unit) {
 }
 
 @Composable
-private fun Quantity(amount: Int, minus: () -> Unit, plus: () -> Unit) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
+private fun Quantity(amount: Int, minus: () -> Unit, plus: () -> Unit, label: String = "人数") {
+    Row(
+        Modifier.clip(RoundedCornerShape(22.dp))
+            .background(if (amount == 0) Color.Transparent else mealColors.secondaryContainer),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
         if (amount > 0) {
-            TextButton(onClick = minus, modifier = Modifier.width(48.dp), contentPadding = PaddingValues(0.dp)) { Text("−") }
-            Text(amount.toString(), fontSize = 13.sp)
+            IconButton(onClick = minus, modifier = Modifier.size(44.dp)) {
+                Icon(Icons.Filled.Remove, "减少${label}", Modifier.size(17.dp), tint = mealColors.primary)
+            }
+            Text(amount.toString(), fontSize = 13.sp, fontWeight = FontWeight.Medium, color = mealColors.onSecondaryContainer)
         }
-        TextButton(onClick = plus, modifier = Modifier.width(48.dp), contentPadding = PaddingValues(0.dp)) { Text("＋") }
+        IconButton(onClick = plus, modifier = Modifier.size(44.dp)) {
+            Box(
+                Modifier.size(28.dp).clip(RoundedCornerShape(14.dp))
+                    .background(if (amount == 0) mealColors.primary else Color.Transparent),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(Icons.Filled.Add, "增加${label}", Modifier.size(17.dp),
+                    tint = if (amount == 0) mealColors.onPrimary else mealColors.primary)
+            }
+        }
     }
 }
 
@@ -332,17 +440,35 @@ private fun DishPhoto(recipe: Recipe, modifier: Modifier) {
 
 @Composable
 private fun RecipeRow(recipe: Recipe, amount: Int, history: Int, open: () -> Unit, change: (Int) -> Unit) {
-    OutlinedCard(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(7.dp)) {
-            Row(Modifier.fillMaxWidth().clickable(onClick = open), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-                DishPhoto(recipe, Modifier.size(58.dp))
-                Column(Modifier.weight(1f)) {
-                    Text(recipe.name, fontSize = 15.sp)
-                    if (recipe.description.isNotBlank()) Text(recipe.description, fontSize = 11.sp)
-                    Text("点过 $history 次 · ${recipe.minutes}分钟", fontSize = 11.sp)
+    Surface(
+        Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(13.dp),
+        color = mealColors.surface,
+        border = androidx.compose.foundation.BorderStroke(1.dp, mealColors.outlineVariant),
+    ) {
+        Row(
+            Modifier.padding(start = 8.dp, top = 8.dp, end = 4.dp, bottom = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(Modifier.clickable(role = Role.Button, onClick = open)) {
+                DishPhoto(recipe, Modifier.size(66.dp))
+            }
+            Column(Modifier.weight(1f)) {
+                Column(Modifier.fillMaxWidth().clickable(role = Role.Button, onClick = open)) {
+                    Text(recipe.name, fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    val subtitle = listOfNotNull(recipe.description.takeIf { it.isNotBlank() },
+                        "点过 ${history}次".takeIf { history > 0 }).joinToString(" · ")
+                    if (subtitle.isNotBlank()) Text(subtitle, fontSize = 11.sp,
+                        color = mealColors.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text("${recipe.minutes}分钟", Modifier.weight(1f), fontSize = 10.sp, color = mealColors.onSurfaceVariant,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Quantity(amount, { change(-1) }, { change(1) }, recipe.name)
                 }
             }
-            Box(Modifier.align(Alignment.End)) { Quantity(amount, { change(-1) }, { change(1) }) }
         }
     }
 }
