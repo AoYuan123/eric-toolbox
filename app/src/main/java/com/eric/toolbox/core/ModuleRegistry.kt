@@ -7,6 +7,7 @@ import com.eric.toolbox.modules.datecalc.DateCalcModule
 import com.eric.toolbox.modules.english.EnglishModule
 import com.eric.toolbox.modules.family.FamilyModule
 import com.eric.toolbox.modules.gold.GoldModule
+import com.eric.toolbox.modules.meal.MealModule
 import com.eric.toolbox.modules.pan.PanModule
 import com.eric.toolbox.modules.read.ReadModule
 import com.eric.toolbox.modules.translate.TranslateModule
@@ -29,6 +30,7 @@ object ModuleRegistry {
         ZlibModule,
         BrowserModule, // 内置浏览器：必应搜索，站内打开，不跳系统浏览器
         FamilyModule, // 记忆绳：孕期到成长的照片/视频/录音
+        MealModule,
         EnglishModule, // 底部导航第二格，不出现在首页工具格子里
         AiModule, // 首页顶部单独一条入口，不出现在模块格子里
         // 以后的新模块加在这里
