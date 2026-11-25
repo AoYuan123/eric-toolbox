@@ -13,7 +13,7 @@ internal data class Recipe(
     val source: String = "",
     val photo: String = "",
 ) {
-    fun instructions() = steps.split("｜").mapIndexed { index, step -> "${index + 1}. $step" }.joinToString("\n")
+    fun instructions() = cookingSteps().mapIndexed { index, step -> "${index + 1}. $step" }.joinToString("\n")
 }
 
 internal val mealRecipes = listOf(

@@ -195,25 +195,10 @@ private fun MealScreen(onBack: () -> Unit) {
             val body = Modifier.fillMaxSize().padding(inset).padding(horizontal = 10.dp)
             val recipe = detail
             when {
-                recipe != null -> Column(
-                    body.verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    DishPhoto(recipe, Modifier.fillMaxWidth().height(200.dp))
-                    Text("每份约 2 人 · 约 ${recipe.minutes} 分钟", fontSize = 13.sp)
-                    Text("食材", style = MaterialTheme.typography.titleMedium)
-                    Text(recipe.ingredients)
-                    Text("做法", style = MaterialTheme.typography.titleMedium)
-                    recipe.instructions().lines().forEach { Text(it) }
-                    if (recipe.source.isNotBlank()) {
-                        TextButton(onClick = {
-                            runCatching {
-                                context.startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(recipe.source)))
-                            }
-                        }) { Text("参考菜谱 · 下厨房 · 樱桃777") }
-                    }
-                    Button(onClick = { adjust(recipe, 1); detail = null }) { Text("加入菜单") }
-                }
+                recipe != null -> RecipeDetail(
+                    recipe, mode, body,
+                    onAdd = { adjust(recipe, 1); detail = null },
+                )
                 menu -> Column(body.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         for (item in listOf("早餐", "午餐", "晚餐")) {
@@ -429,11 +414,11 @@ private fun Quantity(amount: Int, minus: () -> Unit, plus: () -> Unit, label: St
 }
 
 @Composable
-private fun DishPhoto(recipe: Recipe, modifier: Modifier) {
+internal fun DishPhoto(recipe: Recipe, modifier: Modifier, scale: ContentScale = ContentScale.Crop) {
     val id = recipe.id.takeIf { candidate -> mealRecipes.any { it.id == candidate } }
     val url = recipe.photo.ifBlank { id?.let { "file:///android_asset/meal/$it.jpg" }.orEmpty() }
     Box(modifier.clip(RoundedCornerShape(8.dp)).background(MaterialTheme.colorScheme.secondaryContainer), contentAlignment = Alignment.Center) {
-        if (url.isNotBlank()) AsyncImage(url, recipe.name, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+        if (url.isNotBlank()) AsyncImage(url, recipe.name, Modifier.fillMaxSize(), contentScale = scale)
         else Text("暂无图片", fontSize = 11.sp)
     }
 }
