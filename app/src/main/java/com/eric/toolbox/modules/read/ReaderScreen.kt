@@ -67,6 +67,9 @@ import com.eric.toolbox.ui.Segmented
 import com.eric.toolbox.ui.ToggleRow
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -103,6 +106,7 @@ fun ReaderScreen(bookId: String, onBack: () -> Unit) {
     var panel by remember { mutableStateOf(Panel.NONE) }
     var cpm by remember { mutableStateOf(ReadPrefs.cpm(ctx)) }
     val pageShownAt = remember { longArrayOf(System.currentTimeMillis()) }
+    val lastSavedChapter = remember { intArrayOf(-1) }
     // 章节加载完成后要跳到的位置：>=0 比例；-1 末页；-2 查找第 n 个匹配
     val pending = remember { doubleArrayOf(0.0) }
     val pendingFind = remember { arrayOf<Pair<String, Int>?>(null) }
@@ -112,6 +116,8 @@ fun ReaderScreen(bookId: String, onBack: () -> Unit) {
     val pageSeq = remember { intArrayOf(0) }
     val chapterJob = remember { arrayOfNulls<Job>(1) }
     var chapterError by remember { mutableStateOf(false) }
+    var rendererLost by remember { mutableStateOf(false) }
+    val progressWrites = remember(bookId) { Channel<Book>(Channel.CONFLATED) }
     var pick by remember { mutableStateOf<Pick?>(null) }
     var openHl by remember { mutableStateOf<String?>(null) }
     val pendingHl = remember { arrayOf<String?>(null) }
@@ -128,7 +134,6 @@ fun ReaderScreen(bookId: String, onBack: () -> Unit) {
             chapter = chapter.coerceIn(0, opened.chapterCount - 1)
             chapterWeights = List(opened.chapterCount) { 1 }
             content = opened
-            Library.update(ctx, b.id) { it.copy(lastReadAt = System.currentTimeMillis()) }
             // 先打开当前章，整本书的字数统计只用于进度与预计时间。
             val stats = withContext(Dispatchers.IO) { opened.chapterChars to opened.cjk }
             chapterWeights = stats.first
@@ -137,7 +142,35 @@ fun ReaderScreen(bookId: String, onBack: () -> Unit) {
             throw e
         } catch (e: Exception) { err = "打不开这本书：${e.message}" }
     }
-    DisposableEffect(Unit) { onDispose { chapterJob[0]?.cancel(); webRef[0]?.destroy(); content?.close() } }
+    LaunchedEffect(bookId) {
+        var pendingSave: Book? = null
+        fun writeProgress(snapshot: Book) {
+            try {
+                Library.update(ctx, bookId) { saved ->
+                    if (saved.lastReadAt > snapshot.lastReadAt) saved else saved.copy(
+                        chapter = snapshot.chapter, fraction = snapshot.fraction, progress = snapshot.progress,
+                        lastReadAt = snapshot.lastReadAt,
+                    )
+                }
+            } catch (e: java.io.IOException) {
+                android.util.Log.w("Reader", "阅读进度保存失败", e)
+            }
+        }
+        try {
+            for (snapshot in progressWrites) {
+                pendingSave = snapshot
+                delay(250)
+                progressWrites.tryReceive().getOrNull()?.let { pendingSave = it }
+                val latest = pendingSave ?: continue
+                withContext(Dispatchers.IO) { writeProgress(latest) }
+                pendingSave = null
+            }
+        } finally {
+            val latest = progressWrites.tryReceive().getOrNull() ?: pendingSave
+            if (latest != null) withContext(NonCancellable + Dispatchers.IO) { writeProgress(latest) }
+        }
+    }
+    DisposableEffect(Unit) { onDispose { chapterJob[0]?.cancel(); progressWrites.close(); content?.close() } }
 
     val c = content
     fun load(i: Int, at: Double) {
@@ -166,9 +199,10 @@ fun ReaderScreen(bookId: String, onBack: () -> Unit) {
     fun js(code: String) = webRef[0]?.evaluateJavascript(code, null)
     fun saveProgress() {
         if (content == null) return
-        val pg = ReadLogic.bookFraction(chapterWeights, chapter, fraction)
-        Library.update(ctx, bookId) { it.copy(chapter = chapter, fraction = fraction, progress = pg, lastReadAt = System.currentTimeMillis()) }
-        book = Library.get(ctx, bookId)
+        val current = book ?: return
+        val snapshot = current.copy(chapter = chapter, fraction = fraction,
+            progress = ReadLogic.bookFraction(chapterWeights, chapter, fraction), lastReadAt = System.currentTimeMillis())
+        progressWrites.trySend(snapshot)
     }
     fun listeningHere() = Listen.bookId == bookId && Listen.mode == Listen.Mode.TTS
     fun speakJs() {
@@ -231,8 +265,14 @@ fun ReaderScreen(bookId: String, onBack: () -> Unit) {
                 Text(book?.title ?: "", color = muted, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
                 Text(c.chapterTitle(chapter).trim(), color = muted, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f), textAlign = androidx.compose.ui.text.style.TextAlign.End)
             }
-            AndroidView(
+            if (rendererLost) Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                TextButton(onClick = { rendererLost = false }) { Text("阅读页面已停止，点此恢复", color = fg) }
+            } else AndroidView(
                 modifier = Modifier.weight(1f).fillMaxWidth(),
+                onRelease = { view ->
+                    if (webRef[0] === view) webRef[0] = null
+                    view.destroy()
+                },
                 factory = { context ->
                     WebView(context).apply {
                         webRef[0] = this
@@ -275,8 +315,12 @@ fun ReaderScreen(bookId: String, onBack: () -> Unit) {
                                 }
                                 pageShownAt[0] = now
                                 if (listeningHere() && Listen.playing && now - lastSpeakAt[0] > 1500 && p != pageNo) follow = false
+                                val changed = p != pageNo || f != fraction
                                 pageNo = p; pages = total; fraction = f
-                                saveProgress()
+                                if (changed || lastSavedChapter[0] != chapter) {
+                                    lastSavedChapter[0] = chapter
+                                    saveProgress()
+                                }
                             }.let {}
                             @JavascriptInterface fun tap(zone: Int) = main.post { if (pick != null || openHl != null) { pick = null; openHl = null } else { menu = !menu; panel = Panel.NONE } }.let {}
                             @JavascriptInterface fun word(json: String) = main.post {
@@ -289,13 +333,24 @@ fun ReaderScreen(bookId: String, onBack: () -> Unit) {
                                 val cc = content ?: return@post
                                 if (dir > 0) {
                                     if (chapter + 1 < cc.chapterCount) load(chapter + 1, 0.0)
-                                    else { Library.update(ctx, bookId) { it.copy(finished = true, progress = 1.0) }; Toast.makeText(ctx, "已经读到最后了", Toast.LENGTH_SHORT).show() }
+                                    else {
+                                        scope.launch(Dispatchers.IO) { Library.update(ctx, bookId) { it.copy(finished = true, progress = 1.0) } }
+                                        Toast.makeText(ctx, "已经读到最后了", Toast.LENGTH_SHORT).show()
+                                    }
                                 } else {
                                     if (chapter > 0) load(chapter - 1, -1.0) else Toast.makeText(ctx, "已经是开头", Toast.LENGTH_SHORT).show()
                                 }
                             }.let {}
                         }, "R")
                         webViewClient = object : WebViewClient() {
+                            override fun onRenderProcessGone(view: WebView, detail: android.webkit.RenderProcessGoneDetail): Boolean {
+                                if (webRef[0] === view) webRef[0] = null
+                                pageSeq[0]++
+                                chapterJob[0]?.cancel()
+                                rendererLost = true
+                                return true
+                            }
+
                             override fun shouldInterceptRequest(view: WebView, req: WebResourceRequest): WebResourceResponse? {
                                 val u = req.url
                                 val scheme = u.scheme ?: ""
@@ -309,11 +364,11 @@ fun ReaderScreen(bookId: String, onBack: () -> Unit) {
                                     }
                                     // 书里的图片/样式/CSS 里引的字体都走这里。取不到就给 404，
                                     // 绝不能让异常抛出去——抛出去整章会一起废掉。
-                                    val asset = if (req.isForMainFrame) null else runCatching { c.openAsset(path) }.getOrNull()
+                                    val asset = if (req.isForMainFrame) null else runCatching { ReaderImages.open(c, path) }.getOrNull()
                                         ?: runCatching {
                                             // 有的书 href 是二次转义（%2520 这种），再解一次
                                             val again = android.net.Uri.decode(path)
-                                            if (again != path) c.openAsset(again) else null
+                                            if (again != path) ReaderImages.open(c, again) else null
                                         }.getOrNull()
                                     if (asset != null) {
                                         return WebResourceResponse(asset.mime, null, 200, "OK", emptyMap(), asset.stream)

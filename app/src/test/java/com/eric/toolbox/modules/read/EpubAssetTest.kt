@@ -15,6 +15,15 @@ import java.util.zip.ZipOutputStream
  */
 class EpubAssetTest {
 
+    @Test
+    fun `书内大图按显示尺寸解码且小图保持原样`() {
+        assertEquals(2, ReaderImages.sampleSize(2223, 3143))
+        assertEquals(2, ReaderImages.sampleSize(3143, 2223))
+        assertEquals(8, ReaderImages.sampleSize(12000, 1000))
+        assertEquals(1, ReaderImages.sampleSize(720, 1280))
+        assertEquals(1, ReaderImages.sampleSize(-1, -1))
+    }
+
     private val jpeg = byteArrayOf(
         0xFF.toByte(), 0xD8.toByte(), 0xFF.toByte(), 0xE0.toByte(),
         0x00, 0x10, 0x4A, 0x46, 0x49, 0x46, 0x00, 0x01, 0x02, 0x03,

@@ -91,11 +91,12 @@ object ReaderHtml {
           function pages(){ if(!paged){return 1;} var sw=document.scrollingElement.scrollWidth; return Math.max(1, Math.round(sw / Math.max(1,W()))); }
           function cur(){ return paged ? Math.round(window.scrollX / W()) : 0; }
           function frac(){ if(paged){ var p=pages(); return p<=1?0:cur()/(p-1);} var h=document.scrollingElement.scrollHeight-window.innerHeight; return h<=0?0:Math.min(1,window.scrollY/h); }
+          var reportTimer=null;
           function report(){ R.page(cur(), pages(), frac(), seq); }
-          window.__go=function(n, smooth){ if(!paged) return; var p=pages(); n=Math.max(0,Math.min(p-1,n)); window.scrollTo({left:n*W(),top:0,behavior:smooth?'smooth':'auto'}); setTimeout(report, smooth?260:0); };
+          window.__go=function(n, smooth){ if(!paged) return; var p=pages(); n=Math.max(0,Math.min(p-1,n)); window.scrollTo({left:n*W(),top:0,behavior:smooth?'smooth':'auto'}); clearTimeout(reportTimer); reportTimer=setTimeout(report, smooth?260:0); };
           window.__goFrac=function(f){ if(paged){ __go(Math.round(f*(pages()-1)), false);} else { var h=document.scrollingElement.scrollHeight-window.innerHeight; window.scrollTo(0, Math.max(0,f*h)); setTimeout(report,0);} };
-          window.__next=function(){ if(!started) return; if(paged){ if(cur()>=pages()-1){R.edge(1,seq);} else {__go(cur()+1,true);} } else { var y=window.scrollY, h=document.scrollingElement.scrollHeight-window.innerHeight; if(y>=h-2){R.edge(1,seq);} else {window.scrollBy({top:window.innerHeight-40,behavior:'smooth'}); setTimeout(report,300);} } };
-          window.__prev=function(){ if(!started) return; if(paged){ if(cur()<=0){R.edge(-1,seq);} else {__go(cur()-1,true);} } else { if(window.scrollY<=2){R.edge(-1,seq);} else {window.scrollBy({top:-(window.innerHeight-40),behavior:'smooth'}); setTimeout(report,300);} } };
+          window.__next=function(){ if(!started) return; if(paged){ if(cur()>=pages()-1){R.edge(1,seq);} else {__go(cur()+1,false);} } else { var y=window.scrollY, h=document.scrollingElement.scrollHeight-window.innerHeight; if(y>=h-2){R.edge(1,seq);} else {window.scrollBy({top:window.innerHeight-40,behavior:'smooth'}); setTimeout(report,300);} } };
+          window.__prev=function(){ if(!started) return; if(paged){ if(cur()<=0){R.edge(-1,seq);} else {__go(cur()-1,false);} } else { if(window.scrollY<=2){R.edge(-1,seq);} else {window.scrollBy({top:-(window.innerHeight-40),behavior:'smooth'}); setTimeout(report,300);} } };
           var BLK='p,div,li,h1,h2,h3,h4,h5,h6,blockquote,td,pre,dd,dt';
           function flat(){ var w=document.createTreeWalker(document.body,NodeFilter.SHOW_TEXT,null),n,parts=[],s='',lastB=null;
             while((n=w.nextNode())){ var pe=n.parentElement; if(!pe||pe.closest('script,style')) continue; var b=pe.closest(BLK);
