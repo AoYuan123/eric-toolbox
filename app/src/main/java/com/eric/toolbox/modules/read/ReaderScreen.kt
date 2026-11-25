@@ -43,6 +43,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -343,11 +344,9 @@ fun ReaderScreen(bookId: String, onBack: () -> Unit) {
                         })
                     }
                 },
-                update = { wv -> wv.keepScreenOn = rs.keepScreenOn; wv.setBackgroundColor(android.graphics.Color.parseColor(col.bg))
-                    // 书解析完比 WebView 建好晚一步时，factory 里那次 load 会因为 content 还是 null 直接返回，
-                    // 页面就永远空着。补一次——判断必须放在 post 里面：
-                    // 放外面的话打开书的瞬间会连续排好几个 load，页面被反复重建，表现就是"卡、翻页没反应"。
-                    if (content != null && pageHtml[0] == null) wv.post { if (pageHtml[0] == null) load(chapter, fraction) }
+                update = { wv ->
+                    wv.keepScreenOn = rs.keepScreenOn
+                    wv.setBackgroundColor(android.graphics.Color.parseColor(col.bg))
                 },
             )
             val left = ReadLogic.minutesLeft(chapterWeights.getOrElse(chapter) { 0 }, fraction, cpm)
