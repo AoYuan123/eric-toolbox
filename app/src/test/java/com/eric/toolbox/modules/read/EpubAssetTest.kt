@@ -133,6 +133,16 @@ class EpubAssetTest {
     }
 
     @Test
+    fun `WebView 读取图片流时保留文件头和正确类型`() {
+        book("images/A.JPG", "application/octet-stream").use { c ->
+            val image = c.openAsset("OEBPS/Images/a.jpg")!!
+            assertEquals("image/jpeg", image.mime)
+            image.stream.use { org.junit.Assert.assertArrayEquals(jpeg, it.readBytes()) }
+            assertNull(c.openAsset("OEBPS/Images/missing.jpg"))
+        }
+    }
+
+    @Test
     fun `取不到的资源返回空而不是抛异常`() {
         book("images/a.jpg", "image/jpeg").use { c ->
             assertNull(c.resource("OEBPS/Images/不存在.png"))

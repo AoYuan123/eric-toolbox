@@ -65,6 +65,8 @@ import com.eric.toolbox.ui.C
 import com.eric.toolbox.ui.Segmented
 import com.eric.toolbox.ui.ToggleRow
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayInputStream
@@ -84,6 +86,7 @@ fun ReaderScreen(bookId: String, onBack: () -> Unit) {
     val scope = rememberCoroutineScope()
     var book by remember { mutableStateOf(Library.get(ctx, bookId)) }
     var content by remember { mutableStateOf<BookContent?>(null) }
+    var chapterWeights by remember { mutableStateOf<List<Int>>(emptyList()) }
     var err by remember { mutableStateOf<String?>(null) }
     var rs by remember { mutableStateOf(ReadPrefs.settings(ctx)) }
     fun curTheme() = rs.effectiveTheme(Calendar.getInstance().get(Calendar.HOUR_OF_DAY))
@@ -104,8 +107,10 @@ fun ReaderScreen(bookId: String, onBack: () -> Unit) {
     val pendingFind = remember { arrayOf<Pair<String, Int>?>(null) }
     val webRef = remember { arrayOf<WebView?>(null) }
     // 当前章节包装好的阅读页：WebView 请求 https://book.local/<章节路径>?__r=<序号> 时由拦截器直接返回
-    val pageHtml = remember { arrayOf<String?>(null) }
+    val pageHtml = remember { java.util.concurrent.atomic.AtomicReference<Pair<Int, ByteArray>?>(null) }
     val pageSeq = remember { intArrayOf(0) }
+    val chapterJob = remember { arrayOfNulls<Job>(1) }
+    var chapterError by remember { mutableStateOf(false) }
     var pick by remember { mutableStateOf<Pick?>(null) }
     var openHl by remember { mutableStateOf<String?>(null) }
     val pendingHl = remember { arrayOf<String?>(null) }
@@ -118,37 +123,49 @@ fun ReaderScreen(bookId: String, onBack: () -> Unit) {
     LaunchedEffect(bookId) {
         val b = book ?: run { err = "书不在书架上了"; return@LaunchedEffect }
         try {
-            content = withContext(Dispatchers.IO) {
-                val cc = BookContent.open(Library.bookFile(ctx, b), b.format)
-                // 章节字数表是把整本书 stripTags 一遍（两百章的书要好几秒），
-                // 主线程第一次读它时算，表现就是"打开特别卡、这期间点翻页没反应"。
-                // 趁还在 IO 线程先把这两项算掉，界面之后读到的都是缓存。
-                cc.chapterChars
-                cc.cjk
-                cc
-            }
+            val opened = withContext(Dispatchers.IO) { BookContent.open(Library.bookFile(ctx, b), b.format) }
+            chapter = chapter.coerceIn(0, opened.chapterCount - 1)
+            chapterWeights = List(opened.chapterCount) { 1 }
+            content = opened
             Library.update(ctx, b.id) { it.copy(lastReadAt = System.currentTimeMillis()) }
-            if (cpm <= 0) cpm = ReadLogic.defaultCpm(content!!.cjk)
+            // 先打开当前章，整本书的字数统计只用于进度与预计时间。
+            val stats = withContext(Dispatchers.IO) { opened.chapterChars to opened.cjk }
+            chapterWeights = stats.first
+            if (cpm <= 0) cpm = ReadLogic.defaultCpm(stats.second)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Exception) { err = "打不开这本书：${e.message}" }
     }
-    DisposableEffect(Unit) { onDispose { content?.close(); webRef[0]?.destroy() } }
+    DisposableEffect(Unit) { onDispose { chapterJob[0]?.cancel(); webRef[0]?.destroy(); content?.close() } }
 
     val c = content
     fun load(i: Int, at: Double) {
         val cc = content ?: return
         val idx = i.coerceIn(0, cc.chapterCount - 1)
-        chapter = idx; pending[0] = at
-        pageHtml[0] = ReaderHtml.wrap(cc.chapterHtml(idx), rs, curTheme())
-        pageSeq[0]++
-        // 11-07 真机：loadDataWithBaseURL 在部分 WebView 上会先走 data: 地址，被下面的外链拦截挡住显示“网页无法打开”。
-        // 改为直接加载书内虚拟地址，由拦截器返回页面内容。
-        val path = cc.chapterPath(idx).split('/').joinToString("/") { android.net.Uri.encode(it) }
-        webRef[0]?.loadUrl("https://book.local/$path?__r=${pageSeq[0]}")
+        chapter = idx; pending[0] = at; chapterError = false
+        val sequence = ++pageSeq[0]
+        val settings = rs
+        val selectedTheme = curTheme()
+        chapterJob[0]?.cancel()
+        chapterJob[0] = scope.launch {
+            val prepared = withContext(Dispatchers.IO) {
+                runCatching { ReaderHtml.wrap(cc.chapterHtml(idx), settings, selectedTheme).toByteArray(Charsets.UTF_8) }
+            }
+            ensureActive()
+            val bytes = prepared.getOrNull()
+            if (bytes == null) {
+                chapterError = true
+            } else {
+                pageHtml.set(sequence to bytes)
+                val path = cc.chapterPath(idx).split('/').joinToString("/") { android.net.Uri.encode(it) }
+                webRef[0]?.loadUrl("https://book.local/$path?__r=$sequence")
+            }
+        }
     }
     fun js(code: String) = webRef[0]?.evaluateJavascript(code, null)
     fun saveProgress() {
-        val cc = content ?: return
-        val pg = ReadLogic.bookFraction(cc.chapterChars, chapter, fraction)
+        if (content == null) return
+        val pg = ReadLogic.bookFraction(chapterWeights, chapter, fraction)
         Library.update(ctx, bookId) { it.copy(chapter = chapter, fraction = fraction, progress = pg, lastReadAt = System.currentTimeMillis()) }
         book = Library.get(ctx, bookId)
     }
@@ -232,7 +249,8 @@ fun ReaderScreen(bookId: String, onBack: () -> Unit) {
                         settings.textZoom = 100
                         val main = Handler(Looper.getMainLooper())
                         addJavascriptInterface(object {
-                            @JavascriptInterface fun ready(total: Int) = main.post {
+                            @JavascriptInterface fun ready(total: Int, sequence: Int) = main.post {
+                                if (sequence != pageSeq[0]) return@post
                                 pages = total
                                 val hls = Notes.bookHighlights(ctx, bookId).filter { it.chapter == chapter }
                                 if (hls.isNotEmpty()) js("__hl(" + org.json.JSONArray(hls.map { org.json.JSONObject().put("id", it.id).put("t", it.text).put("k", it.occurrence) }) + ")")
@@ -246,10 +264,11 @@ fun ReaderScreen(bookId: String, onBack: () -> Unit) {
                                     else -> js("__goFrac(${pending[0]})")
                                 }
                             }.let {}
-                            @JavascriptInterface fun page(p: Int, total: Int, f: Double) = main.post {
+                            @JavascriptInterface fun page(p: Int, total: Int, f: Double, sequence: Int) = main.post {
+                                if (sequence != pageSeq[0]) return@post
                                 val now = System.currentTimeMillis()
                                 if (p != pageNo) {
-                                    val perPage = (content?.chapterChars?.getOrNull(chapter) ?: 0) / maxOf(1, total)
+                                    val perPage = (chapterWeights.getOrNull(chapter) ?: 0) / maxOf(1, total)
                                     val ncpm = ReadLogic.updateCpm(cpm, perPage, (now - pageShownAt[0]) / 1000.0)
                                     if (ncpm != cpm) { cpm = ncpm; ReadPrefs.saveCpm(ctx, ncpm) }
                                 }
@@ -264,7 +283,8 @@ fun ReaderScreen(bookId: String, onBack: () -> Unit) {
                                 menu = false; openHl = null
                             }.let {}
                             @JavascriptInterface fun hl(id: String) = main.post { openHl = id; pick = null; menu = false }.let {}
-                            @JavascriptInterface fun edge(dir: Int) = main.post {
+                            @JavascriptInterface fun edge(dir: Int, sequence: Int) = main.post {
+                                if (sequence != pageSeq[0]) return@post
                                 val cc = content ?: return@post
                                 if (dir > 0) {
                                     if (chapter + 1 < cc.chapterCount) load(chapter + 1, 0.0)
@@ -282,20 +302,20 @@ fun ReaderScreen(bookId: String, onBack: () -> Unit) {
                                 if (scheme != "http" && scheme != "https") return null
                                 if (u.host == "book.local") {
                                     val path = (u.path ?: "").trimStart('/')
-                                    if (u.getQueryParameter("__r") != null) {
-                                        val h = pageHtml[0] ?: ""
-                                        return WebResourceResponse("text/html", "utf-8", 200, "OK", mapOf("Cache-Control" to "no-store"), ByteArrayInputStream(h.toByteArray(Charsets.UTF_8)))
+                                    val prepared = pageHtml.get()
+                                    if (req.isForMainFrame && prepared != null && u.getQueryParameter("__r") == prepared.first.toString()) {
+                                        return WebResourceResponse("text/html", "utf-8", 200, "OK", mapOf("Cache-Control" to "no-store"), ByteArrayInputStream(prepared.second))
                                     }
                                     // 书里的图片/样式/CSS 里引的字体都走这里。取不到就给 404，
                                     // 绝不能让异常抛出去——抛出去整章会一起废掉。
-                                    val asset = runCatching { content?.asset(path) }.getOrNull()
+                                    val asset = if (req.isForMainFrame) null else runCatching { c.openAsset(path) }.getOrNull()
                                         ?: runCatching {
                                             // 有的书 href 是二次转义（%2520 这种），再解一次
-                                            val again = java.net.URLDecoder.decode(path, "UTF-8")
-                                            if (again != path) content?.asset(again) else null
+                                            val again = android.net.Uri.decode(path)
+                                            if (again != path) c.openAsset(again) else null
                                         }.getOrNull()
                                     if (asset != null) {
-                                        return WebResourceResponse(asset.mime, null, 200, "OK", emptyMap(), ByteArrayInputStream(asset.bytes))
+                                        return WebResourceResponse(asset.mime, null, 200, "OK", emptyMap(), asset.stream)
                                     }
                                     android.util.Log.w("Reader", "书内资源没找到：" + path)
                                 }
@@ -330,16 +350,20 @@ fun ReaderScreen(bookId: String, onBack: () -> Unit) {
                     if (content != null && pageHtml[0] == null) wv.post { if (pageHtml[0] == null) load(chapter, fraction) }
                 },
             )
-            val left = ReadLogic.minutesLeft(c.chapterChars.getOrElse(chapter) { 0 }, fraction, if (cpm > 0) cpm else ReadLogic.defaultCpm(c.cjk))
-            val bookPct = (ReadLogic.bookFraction(c.chapterChars, chapter, fraction) * 100).toInt()
+            val left = ReadLogic.minutesLeft(chapterWeights.getOrElse(chapter) { 0 }, fraction, cpm)
+            val bookPct = (ReadLogic.bookFraction(chapterWeights, chapter, fraction) * 100).toInt()
             Row(Modifier.fillMaxWidth().padding(horizontal = 22.dp, vertical = 6.dp)) {
                 Text("本章还剩约 $left 分钟", color = muted, fontSize = 11.sp, modifier = Modifier.weight(1f))
                 Text("第 ${chapter + 1}/${c.chapterCount} 章 ${(fraction * 100).toInt()}% · 全书 $bookPct%", color = muted, fontSize = 11.sp)
             }
         }
+        if (chapterError) TextButton(
+            onClick = { load(chapter, fraction) },
+            modifier = Modifier.align(Alignment.Center),
+        ) { Text("章节加载失败，点击重试", color = fg) }
 
         if (menu && panel == Panel.NONE) ReaderMenu(
-            title = book?.title ?: "", bookPct = ReadLogic.bookFraction(c.chapterChars, chapter, fraction),
+            title = book?.title ?: "", bookPct = ReadLogic.bookFraction(chapterWeights, chapter, fraction),
             marked = book?.bookmarks?.any { it.chapter == chapter && kotlin.math.abs(it.fraction - fraction) < 0.02 } == true,
             onBack = onBack,
             onSearch = { panel = Panel.SEARCH },
@@ -356,10 +380,10 @@ fun ReaderScreen(bookId: String, onBack: () -> Unit) {
                 Toast.makeText(ctx, if (existing != null) "已删除书签" else "已加书签", Toast.LENGTH_SHORT).show()
             },
             onSeek = { f ->
-                val total = c.chapterChars.sum().toDouble()
+                val total = chapterWeights.sum().toDouble()
                 var acc = 0.0; var idx = 0
-                while (idx < c.chapterCount - 1 && acc + c.chapterChars[idx] < f * total) { acc += c.chapterChars[idx]; idx++ }
-                val within = ((f * total - acc) / c.chapterChars[idx]).coerceIn(0.0, 1.0)
+                while (idx < c.chapterCount - 1 && acc + chapterWeights[idx] < f * total) { acc += chapterWeights[idx]; idx++ }
+                val within = ((f * total - acc) / chapterWeights[idx]).coerceIn(0.0, 1.0)
                 load(idx, within)
             },
             onPrevCh = { if (chapter > 0) load(chapter - 1, 0.0) },

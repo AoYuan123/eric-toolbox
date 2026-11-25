@@ -1,6 +1,9 @@
 package com.eric.toolbox.modules.read
 
 import java.io.File
+import java.io.ByteArrayInputStream
+import java.io.InputStream
+import java.util.zip.GZIPInputStream
 
 /**
  * 阅读器看到的一本书：章节列表、每章 HTML、书内资源（图片、样式）。EPUB 和 TXT 统一成这个样子。
@@ -22,6 +25,11 @@ abstract class BookContent : AutoCloseable {
     data class Asset(val bytes: ByteArray, val mime: String)
 
     open fun asset(path: String): Asset? = resource(path)?.let { Asset(it, mime(path)) }
+
+    data class AssetStream(val stream: InputStream, val mime: String)
+
+    open fun openAsset(path: String): AssetStream? =
+        asset(path)?.let { AssetStream(ByteArrayInputStream(it.bytes), it.mime) }
 
     private val textCache = HashMap<Int, String>()
     fun chapterText(i: Int): String = synchronized(textCache) { textCache.getOrPut(i) { ReadLogic.stripTags(chapterHtml(i)) } }
@@ -118,12 +126,40 @@ private class EpubContent(private val epub: Epub) : BookContent() {
     override val language get() = epub.language
     override val chapterCount get() = epub.spine.size
     override fun chapterPath(i: Int) = epub.spine[i]
-    override fun chapterHtml(i: Int): String = epub.read(epub.spine[i])?.let { decode(it) } ?: ""
+    override fun chapterHtml(i: Int): String {
+        val path = chapterPath(i)
+        if (mime(path).startsWith("image/") || mimeOf(path).startsWith("image/")) {
+            val file = java.net.URI(null, null, "./" + path.substringAfterLast('/'), null)
+                .toASCIIString().replace("&", "&amp;")
+            return """<html><body><img src="$file" alt="书内插图"></body></html>"""
+        }
+        return epub.read(path)?.let { decode(it) } ?: ""
+    }
     override fun resource(path: String) = epub.read(path)
     override fun mime(path: String) = epub.mediaType(path) ?: mimeOf(path)
     override fun asset(path: String): Asset? {
         val b = epub.read(path) ?: return null
         return Asset(b, sniff(b, mime(path)))
+    }
+    override fun openAsset(path: String): AssetStream? {
+        val stream = epub.openResource(path)?.buffered() ?: return null
+        return try {
+            stream.mark(512)
+            val header = ByteArray(512)
+            var count = 0
+            while (count < header.size) {
+                val read = stream.read(header, count, header.size - count)
+                if (read < 0) break
+                count += read
+            }
+            stream.reset()
+            val type = sniff(header.copyOf(count), mime(path))
+            val gzip = count >= 2 && header[0] == 0x1f.toByte() && header[1] == 0x8b.toByte()
+            AssetStream(if (type == "image/svg+xml" && gzip) GZIPInputStream(stream) else stream, type)
+        } catch (e: Exception) {
+            stream.close()
+            throw e
+        }
     }
     override val toc: List<Pair<String, Int>> by lazy {
         epub.toc.mapNotNull { t -> epub.spineIndexOf(t.href).takeIf { it >= 0 }?.let { (("　".repeat(t.level.coerceAtMost(3))) + t.title) to it } }

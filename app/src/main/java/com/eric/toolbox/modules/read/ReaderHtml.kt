@@ -41,6 +41,7 @@ object ReaderHtml {
     private val bodyOpen = Regex("""<body[^>]*>""", RegexOption.IGNORE_CASE)
     private val htmlOpen = Regex("""<html[^>]*>""", RegexOption.IGNORE_CASE)
     private val inlineHandlers = Regex("""\s+on[a-z]+\s*=\s*("[^"]*"|'[^']*')""", RegexOption.IGNORE_CASE)
+    private val viewportTag = Regex("""<meta\b(?=[^>]*\bname\s*=\s*["']?viewport\b)[^>]*>""", RegexOption.IGNORE_CASE)
 
     fun fontStack(font: String) = when (font) {
         "sans" -> "'Noto Sans CJK SC','Source Han Sans SC',Roboto,'Helvetica Neue',sans-serif"
@@ -60,7 +61,7 @@ object ReaderHtml {
             p{margin-top:0;margin-bottom:0.6em;}
             h1,h2,h3,h4{line-height:1.35 !important;text-align:left;}
             a{color:${c.link} !important;}
-            img,svg{max-width:100% !important;height:auto;}
+            img,svg{max-width:100% !important;height:auto !important;object-fit:contain !important;}
             pre,code{white-space:pre-wrap;font-size:0.85em;}
             mark.__hit{background:${c.mark} !important;color:inherit !important;border-radius:2px;}
             mark.__tts{background:${c.mark} !important;color:inherit !important;border-radius:2px;}
@@ -85,15 +86,16 @@ object ReaderHtml {
     fun js(paged: Boolean, tapSides: Boolean, tapLookup: Boolean = false, margin: Int = 22): String = """
         (function(){
           var paged=$paged, sides=$tapSides, tapLook=$tapLookup, M=$margin;
+          var seq=Number(new URLSearchParams(window.location.search).get('__r'))||0;
           var W=function(){return window.innerWidth;};
-          function pages(){ if(!paged){return 1;} var sw=document.scrollingElement.scrollWidth; return Math.max(1, Math.round(sw / W())); }
+          function pages(){ if(!paged){return 1;} var sw=document.scrollingElement.scrollWidth; return Math.max(1, Math.round(sw / Math.max(1,W()))); }
           function cur(){ return paged ? Math.round(window.scrollX / W()) : 0; }
           function frac(){ if(paged){ var p=pages(); return p<=1?0:cur()/(p-1);} var h=document.scrollingElement.scrollHeight-window.innerHeight; return h<=0?0:Math.min(1,window.scrollY/h); }
-          function report(){ R.page(cur(), pages(), frac()); }
+          function report(){ R.page(cur(), pages(), frac(), seq); }
           window.__go=function(n, smooth){ if(!paged) return; var p=pages(); n=Math.max(0,Math.min(p-1,n)); window.scrollTo({left:n*W(),top:0,behavior:smooth?'smooth':'auto'}); setTimeout(report, smooth?260:0); };
           window.__goFrac=function(f){ if(paged){ __go(Math.round(f*(pages()-1)), false);} else { var h=document.scrollingElement.scrollHeight-window.innerHeight; window.scrollTo(0, Math.max(0,f*h)); setTimeout(report,0);} };
-          window.__next=function(){ if(paged){ if(cur()>=pages()-1){R.edge(1);} else {__go(cur()+1,true);} } else { var y=window.scrollY, h=document.scrollingElement.scrollHeight-window.innerHeight; if(y>=h-2){R.edge(1);} else {window.scrollBy({top:window.innerHeight-40,behavior:'smooth'}); setTimeout(report,300);} } };
-          window.__prev=function(){ if(paged){ if(cur()<=0){R.edge(-1);} else {__go(cur()-1,true);} } else { if(window.scrollY<=2){R.edge(-1);} else {window.scrollBy({top:-(window.innerHeight-40),behavior:'smooth'}); setTimeout(report,300);} } };
+          window.__next=function(){ if(!started) return; if(paged){ if(cur()>=pages()-1){R.edge(1,seq);} else {__go(cur()+1,true);} } else { var y=window.scrollY, h=document.scrollingElement.scrollHeight-window.innerHeight; if(y>=h-2){R.edge(1,seq);} else {window.scrollBy({top:window.innerHeight-40,behavior:'smooth'}); setTimeout(report,300);} } };
+          window.__prev=function(){ if(!started) return; if(paged){ if(cur()<=0){R.edge(-1,seq);} else {__go(cur()-1,true);} } else { if(window.scrollY<=2){R.edge(-1,seq);} else {window.scrollBy({top:-(window.innerHeight-40),behavior:'smooth'}); setTimeout(report,300);} } };
           var BLK='p,div,li,h1,h2,h3,h4,h5,h6,blockquote,td,pre,dd,dt';
           function flat(){ var w=document.createTreeWalker(document.body,NodeFilter.SHOW_TEXT,null),n,parts=[],s='',lastB=null;
             while((n=w.nextNode())){ var pe=n.parentElement; if(!pe||pe.closest('script,style')) continue; var b=pe.closest(BLK);
@@ -201,10 +203,25 @@ object ReaderHtml {
               if(!st){ st=document.createElement('style'); st.id='__sz'; d.appendChild(st); }
               st.textContent='img,svg{max-height:'+(h-26)+'px !important;}'; }
             return true; }
-          var started=false;
-          function start(){ if(started) return; if(!size()){ setTimeout(start,100); return; } started=true; pad(); R.ready(pages()); }
-          if(document.readyState==='complete'){ setTimeout(start,30); } else { window.addEventListener('load', function(){ setTimeout(start,30); }); }
-          window.addEventListener('resize', function(){ setTimeout(function(){ var p=paged?cur():0; size(); pad(); if(paged) __go(p,false); report(); },50); });
+          var started=false, reflowTimer=null;
+          function start(){ if(started) return; if(!size()){ setTimeout(start,100); return; } started=true; pad(); R.ready(pages(),seq); }
+          // 正文和手势先可用，插图慢读或失败都不能拖住初始化。
+          if(document.readyState==='loading'){ document.addEventListener('DOMContentLoaded', start, {once:true}); }
+          else { start(); }
+          function reflow(){
+            if(!started) return;
+            clearTimeout(reflowTimer);
+            reflowTimer=setTimeout(function(){
+              var p=paged?cur():0;
+              if(!size()) return;
+              pad();
+              if(paged){ __go(p,false); } else { report(); }
+            },80);
+          }
+          function imageChanged(e){ if(e.target && /^(img|image)$/i.test(e.target.localName||'')) reflow(); }
+          document.addEventListener('load', imageChanged, true);
+          document.addEventListener('error', imageChanged, true);
+          window.addEventListener('resize', reflow);
         })();
     """.trimIndent()
 
@@ -212,6 +229,7 @@ object ReaderHtml {
     fun wrap(chapter: String, s: ReadSettings, theme: String): String {
         var h = scriptTag.replace(chapter, "")
         h = inlineHandlers.replace(h, "")
+        h = viewportTag.replace(h, "")
         val head = "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no\">" +
             "<style id=\"__reader\">${css(s, theme)}</style>"
         val tail = "<script>${js(s.paged, s.tapSides, s.tapLookup, s.margin)}</script>"

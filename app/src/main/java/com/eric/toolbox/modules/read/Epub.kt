@@ -3,6 +3,7 @@ package com.eric.toolbox.modules.read
 import org.w3c.dom.Element
 import java.io.ByteArrayInputStream
 import java.io.File
+import java.io.InputStream
 import java.net.URLDecoder
 import java.util.zip.ZipFile
 import javax.xml.parsers.DocumentBuilderFactory
@@ -54,6 +55,13 @@ class Epub private constructor(private val zip: ZipFile) : AutoCloseable {
     }
 
     fun has(path: String) = realPath(path) != null
+
+    /** 书内资源按需读取；WebView 关响应流时释放这次 ZIP 条目的读取句柄。 */
+    fun openResource(path: String): InputStream? {
+        val real = realPath(path) ?: return null
+        val entry = zip.getEntry(real) ?: return null
+        return zip.getInputStream(entry)
+    }
 
     fun read(path: String): ByteArray? {
         val real = realPath(path) ?: return null
